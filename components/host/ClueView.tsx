@@ -1,0 +1,469 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { findClue, formatScore } from "@/lib/board";
+import { ddMaxWager } from "@/lib/gameReducer";
+import type { Board, BuzzEntry, BuzzState, CluePhase, GameAction, RoomMode, Team } from "@/lib/types";
+import { GradientBackground } from "../GradientBackground";
+import { MediaRenderer } from "../MediaRenderer";
+
+function clueTextSize(text: string) {
+  if (text.length > 220) return "text-[clamp(1.4rem,min(2.6vw,4.5vh),2.6rem)]";
+  if (text.length > 120) return "text-[clamp(1.8rem,min(3.4vw,6vh),3.6rem)]";
+  return "text-[clamp(2.2rem,min(4.6vw,8vh),5rem)]";
+}
+
+export function ClueView({
+  board,
+  phase,
+  teams,
+  mode,
+  buzz,
+  dispatch,
+  onCountdown,
+  onResetBuzz,
+}: {
+  board: Board;
+  phase: CluePhase;
+  teams: Team[];
+  mode: RoomMode;
+  buzz: BuzzState;
+  dispatch: (a: GameAction) => void;
+  onCountdown: () => void;
+  onResetBuzz: () => void;
+}) {
+  const found = findClue(board, phase.clueId);
+  const [showAllBuzzes, setShowAllBuzzes] = useState(false);
+  const dd = phase.dailyDouble;
+  const ddTeam = dd?.teamId ? teams.find((t) => t.id === dd.teamId) : undefined;
+  const resolvedTeam = phase.resolvedBy ? teams.find((t) => t.id === phase.resolvedBy) : undefined;
+  const live = mode === "live";
+  const showClue = !dd || dd.wager !== undefined;
+  const current = live && !dd ? buzz.buzzes.find((b) => !phase.lockedTeams.includes(b.teamId)) : undefined;
+  const currentTeam = current ? teams.find((t) => t.id === current.teamId) : undefined;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.closest("input,textarea")) return;
+      if (e.code === "Space" && showClue && !dd && !phase.resolvedBy) {
+        e.preventDefault();
+        onCountdown();
+      } else if (e.key.toLowerCase() === "a" && showClue) {
+        dispatch({ type: phase.revealed ? "clue:hide" : "clue:reveal" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showClue, dd, phase.resolvedBy, phase.revealed, onCountdown, dispatch]);
+
+  if (!found) return null;
+  const { clue, category, value } = found;
+  const played = !!phase.resolvedBy || phase.revealed || phase.lockedTeams.length > 0 || dd?.wager !== undefined;
+  const crowded = !!phase.resolvedBy || phase.revealed;
+
+  return (
+    <div className="animate-fade-up fixed inset-0 z-40 flex flex-col bg-ink">
+      <GradientBackground variant="hero" accent={resolvedTeam?.color ?? currentTeam?.color} waves={false} />
+      <header className="flex items-center justify-between gap-4 border-b border-line bg-ink px-6 py-3">
+        <p className="label !text-cream/80">
+          {category.title} · {dd ? "Daily Double" : `$${value.toLocaleString("en-US")}`}
+          {dd?.wager !== undefined && ` · wager ${formatScore(dd.wager)}`}
+        </p>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => dispatch({ type: "clue:close", markUsed: played })}
+          title={played ? "Close and mark this tile as played" : "Nothing happened yet, so the tile stays on the board"}
+        >
+          Back to board
+        </button>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <section className="flex min-w-0 flex-1 flex-col overflow-y-auto px-8 py-8 text-center">
+          <div className="m-auto flex w-full flex-col items-center gap-6">
+          {dd && !dd.teamId && (
+            <div className="animate-pop flex flex-col items-center gap-8">
+              <h1 className="font-display gradient-text text-[clamp(4rem,11vw,11rem)] italic">Daily Double</h1>
+              <p className="label">Which team picked this tile?</p>
+              <div className="flex flex-wrap justify-center gap-3">
+                {teams.map((t) => (
+                  <TeamButton key={t.id} team={t} onClick={() => dispatch({ type: "dd:assign", teamId: t.id })} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {dd && ddTeam && dd.wager === undefined && (
+            <WagerPrompt
+              team={ddTeam}
+              max={ddMaxWager(board, ddTeam)}
+              live={live}
+              onSubmit={(amount) => dispatch({ type: "dd:wager", amount })}
+              onChangeTeam={() => dispatch({ type: "dd:assign", teamId: "" })}
+            />
+          )}
+
+          {showClue && (
+            <>
+              {phase.resolvedBy && (
+                <ResultBanner
+                  team={resolvedTeam ?? ddTeam}
+                  correct={!!resolvedTeam}
+                  amount={dd ? (dd.wager ?? 0) : value}
+                />
+              )}
+              {clue.question && (
+                <h1 className={`font-display max-w-5xl text-balance ${clueTextSize(clue.question)}`}>{clue.question}</h1>
+              )}
+              {clue.media && (
+                <div className="flex w-full max-w-4xl justify-center">
+                  <MediaRenderer media={clue.media} maxHeight={crowded ? "28vh" : "50vh"} />
+                </div>
+              )}
+              {phase.revealed && (
+                <div className="animate-fade-up mt-2 flex max-w-5xl flex-col items-center gap-3 border-t border-line pt-6">
+                  <p className="label !text-sm">Correct response</p>
+                  <p className="font-display text-balance text-[clamp(2.4rem,min(6vw,9vh),6.5rem)] leading-tight text-coral">
+                    {clue.answer || "—"}
+                  </p>
+                  {clue.answerMedia && (
+                    <div className="flex w-full max-w-3xl justify-center">
+                      <MediaRenderer media={clue.answerMedia} maxHeight="24vh" />
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-4">
+                {!dd && !phase.resolvedBy && (
+                  <button
+                    className="btn btn-primary px-10 py-5 text-2xl"
+                    onClick={onCountdown}
+                    disabled={buzz.status === "countdown"}
+                    title="Shortcut: Space"
+                  >
+                    {live && buzz.status === "armed" ? "Countdown again" : "Countdown"}
+                  </button>
+                )}
+                <button
+                  className="btn btn-ghost px-10 py-5 text-2xl"
+                  onClick={() => dispatch({ type: phase.revealed ? "clue:hide" : "clue:reveal" })}
+                  title="Shortcut: A"
+                >
+                  {phase.revealed ? "Hide answer" : "Reveal answer"}
+                </button>
+              </div>
+            </>
+          )}
+          </div>
+        </section>
+
+        {live && !dd && (
+          <BuzzPanel
+            buzz={buzz}
+            teams={teams}
+            lockedTeams={phase.lockedTeams}
+            showAll={showAllBuzzes}
+            onToggleAll={() => setShowAllBuzzes(!showAllBuzzes)}
+            current={current}
+            onReset={phase.resolvedBy ? undefined : onResetBuzz}
+          />
+        )}
+      </div>
+
+      {showClue && (
+        <footer className="border-t border-line bg-surface px-6 py-4">
+          {phase.resolvedBy ? (
+            <div className="flex justify-center">
+              <button
+                className="btn btn-primary px-12 py-5 text-2xl"
+                onClick={() => dispatch({ type: "clue:close", markUsed: true })}
+              >
+                Back to board
+              </button>
+            </div>
+          ) : (
+            <div>
+              <p className="label mb-3 text-center !text-sm">
+                {dd ? "Judge the Daily Double" : currentTeam ? `${currentTeam.name} is answering` : "Who answered?"}
+              </p>
+              <div
+                className="grid gap-3"
+                style={{
+                  gridTemplateColumns: `repeat(${dd ? 1 : teams.length}, minmax(0, 1fr))`,
+                }}
+              >
+                {(dd ? teams.filter((t) => t.id === dd.teamId) : teams).map((t) => (
+                  <JudgeChip
+                    key={t.id}
+                    team={t}
+                    amount={dd ? (dd.wager ?? 0) : value}
+                    locked={!dd && phase.lockedTeams.includes(t.id)}
+                    active={currentTeam?.id === t.id || !!dd}
+                    onJudge={(correct) => dispatch({ type: "clue:judge", teamId: t.id, correct })}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </footer>
+      )}
+    </div>
+  );
+}
+
+function ResultBanner({ team, correct, amount }: { team?: Team; correct: boolean; amount: number }) {
+  if (!team) return null;
+  return (
+    <div className="animate-pop flex flex-col items-center gap-2 pb-2">
+      <p className="label !text-base">{correct ? "Correct!" : "Not quite"}</p>
+      <p
+        className="font-display text-[clamp(3rem,min(9vw,13vh),9rem)] leading-[0.95]"
+        style={{ color: team.color, textShadow: `0 0 60px ${team.color}88, 0 0 120px ${team.color}55` }}
+      >
+        {team.name}
+      </p>
+      <p className="font-display text-[clamp(1.8rem,min(4vw,6vh),4rem)]">
+        {correct ? "got it" : "missed"}{" "}
+        <span className={correct ? "text-good" : "text-bad"}>
+          {correct ? "+" : "−"}
+          {formatScore(amount)}
+        </span>
+      </p>
+    </div>
+  );
+}
+
+function TeamButton({ team, onClick }: { team: Team; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="btn btn-ghost px-6 py-4 text-lg"
+      style={{ borderColor: team.color, boxShadow: `inset 0 -3px 0 ${team.color}` }}
+    >
+      {team.name}
+    </button>
+  );
+}
+
+function JudgeChip({
+  team,
+  amount,
+  locked,
+  active,
+  onJudge,
+}: {
+  team: Team;
+  amount: number;
+  locked: boolean;
+  active: boolean;
+  onJudge: (correct: boolean) => void;
+}) {
+  const [delta, setDelta] = useState<{ value: number; key: number } | null>(null);
+  const prevScore = useRef(team.score);
+  useEffect(() => {
+    const diff = team.score - prevScore.current;
+    prevScore.current = team.score;
+    if (!diff) return;
+    setDelta({ value: diff, key: Date.now() });
+    const t = setTimeout(() => setDelta(null), 1600);
+    return () => clearTimeout(t);
+  }, [team.score]);
+
+  return (
+    <div
+      className={`relative flex min-w-0 flex-col border-2 bg-ink transition ${locked ? "opacity-45" : ""}`}
+      style={{
+        borderColor: active ? team.color : "var(--color-line-strong)",
+        boxShadow: active ? `0 0 32px -6px ${team.color}` : undefined,
+      }}
+    >
+      <div className="absolute inset-x-0 top-0 h-1" style={{ background: team.color }} />
+      {delta && (
+        <span
+          key={delta.key}
+          className={`animate-pop absolute -top-12 left-1/2 -translate-x-1/2 text-3xl font-bold ${
+            delta.value > 0 ? "text-good" : "text-bad"
+          }`}
+        >
+          {delta.value > 0 ? "+" : "−"}
+          {formatScore(Math.abs(delta.value))}
+        </span>
+      )}
+      <div className="flex items-baseline justify-between gap-3 px-4 pb-2 pt-3">
+        <span className="truncate text-2xl font-semibold">{team.name}</span>
+        <span className={`shrink-0 text-2xl font-bold tabular-nums ${team.score < 0 ? "text-bad" : ""}`}>
+          {formatScore(team.score)}
+        </span>
+      </div>
+      {locked ? (
+        <div className="flex flex-1 items-center justify-center border-t border-line-strong py-4 text-xl text-bad">
+          Locked out
+        </div>
+      ) : (
+        <div className="grid flex-1 grid-cols-2 border-t border-line-strong">
+          <button
+            className="flex items-center justify-center gap-2 py-4 text-good transition hover:bg-good/15 active:bg-good/25"
+            onClick={() => onJudge(true)}
+            aria-label={`${team.name} correct, add ${amount}`}
+          >
+            <span className="text-3xl leading-none">✓</span>
+            <span className="text-xl font-semibold">+{formatScore(amount)}</span>
+          </button>
+          <button
+            className="flex items-center justify-center gap-2 border-l border-line-strong py-4 text-bad transition hover:bg-bad/15 active:bg-bad/25"
+            onClick={() => onJudge(false)}
+            aria-label={`${team.name} wrong, subtract ${amount}`}
+          >
+            <span className="text-3xl leading-none">✕</span>
+            <span className="text-xl font-semibold">−{formatScore(amount)}</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WagerPrompt({
+  team,
+  max,
+  live,
+  onSubmit,
+  onChangeTeam,
+}: {
+  team: Team;
+  max: number;
+  live: boolean;
+  onSubmit: (amount: number) => void;
+  onChangeTeam: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  return (
+    <div className="animate-fade-up flex flex-col items-center gap-5">
+      <p className="label">Daily Double</p>
+      <h1 className="font-display text-[clamp(2.5rem,6vw,6rem)]">
+        <span style={{ color: team.color }}>{team.name}</span>, make your wager.
+      </h1>
+      <p className="text-muted">
+        Up to {formatScore(max)}
+        {live && " · they can enter it on their phones, or type it here"}
+      </p>
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (amount !== "") onSubmit(Number(amount));
+        }}
+      >
+        <input
+          type="number"
+          min={0}
+          max={max}
+          className="field w-48 text-center text-xl"
+          placeholder="Wager"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          autoFocus
+        />
+        <button className="btn btn-primary" disabled={amount === ""}>
+          Lock in
+        </button>
+      </form>
+      <div className="flex gap-2">
+        <button className="btn btn-ghost btn-sm" onClick={() => onSubmit(max)}>
+          True Daily Double ({formatScore(max)})
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onChangeTeam}>
+          Change team
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function BuzzPanel({
+  buzz,
+  teams,
+  lockedTeams,
+  showAll,
+  onToggleAll,
+  current,
+  onReset,
+}: {
+  buzz: BuzzState;
+  teams: Team[];
+  lockedTeams: string[];
+  showAll: boolean;
+  onToggleAll: () => void;
+  current?: BuzzEntry;
+  onReset?: () => void;
+}) {
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+  const seen = new Set<string>();
+  const list = showAll
+    ? buzz.buzzes
+    : buzz.buzzes.filter((b) => (seen.has(b.teamId) ? false : (seen.add(b.teamId), true)));
+  const first = buzz.buzzes[0]?.time ?? 0;
+  const currentTeam = current ? teamById.get(current.teamId) : undefined;
+
+  return (
+    <aside className="flex w-[22rem] shrink-0 flex-col border-l border-line bg-surface">
+      <div className="flex items-center justify-between border-b border-line px-5 py-3">
+        <p className="label">Buzz order</p>
+        <button className="label hover:!text-cream" onClick={onToggleAll}>
+          {showAll ? "Group by team" : "Show all players"}
+        </button>
+      </div>
+
+      <div className="border-b border-line px-5 py-6">
+        {currentTeam && current ? (
+          <div key={current.playerId} className="animate-pop">
+            <p className="label mb-2">First in</p>
+            <p className="font-display text-5xl leading-none" style={{ color: currentTeam.color }}>
+              {currentTeam.name}
+            </p>
+            <p className="mt-2 text-lg text-cream/80">{current.name}</p>
+          </div>
+        ) : (
+          <p className="font-display text-3xl text-muted">
+            {buzz.status === "armed"
+              ? "Buzzers open…"
+              : buzz.status === "countdown"
+                ? `Get ready… ${buzz.count ?? ""}`
+                : buzz.buzzes.length
+                  ? "Everyone who buzzed is locked out."
+                  : "Press Countdown to open buzzers."}
+          </p>
+        )}
+        {onReset && (buzz.status !== "idle" || buzz.buzzes.length > 0) && (
+          <button className="btn btn-ghost btn-sm mt-5 w-full" onClick={onReset}>
+            Reset buzzers
+          </button>
+        )}
+      </div>
+
+      <ol className="flex-1 overflow-y-auto">
+        {list.map((b, i) => {
+          const team = teamById.get(b.teamId);
+          const locked = lockedTeams.includes(b.teamId);
+          return (
+            <li
+              key={b.playerId}
+              className={`flex items-center gap-3 border-b border-line px-5 py-2.5 ${locked ? "opacity-40" : ""}`}
+            >
+              <span className="w-5 font-mono text-xs text-muted">{i + 1}</span>
+              <span className="h-full w-1 self-stretch" style={{ background: team?.color }} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{team?.name ?? "?"}</span>
+                <span className="block truncate text-xs text-muted">{b.name}</span>
+              </span>
+              <span className="font-mono text-xs text-muted">
+                {i === 0 && !showAll ? "first" : `+${((b.time - first) / 1000).toFixed(2)}s`}
+              </span>
+              {locked && <span className="label !text-bad">✕</span>}
+            </li>
+          );
+        })}
+      </ol>
+    </aside>
+  );
+}
