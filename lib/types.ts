@@ -9,6 +9,10 @@ export type Clue = {
   media?: Media;
   answerMedia?: Media;
   dailyDouble?: boolean;
+  /** Shown on the host screen when a team uses a Hint power-up. */
+  hint?: string;
+  /** Hidden power-up awarded to the team that wins this tile. */
+  powerup?: PowerType;
 };
 
 export type Category = {
@@ -53,7 +57,61 @@ export type Board = {
   updatedAt?: number;
 };
 
-export type Team = { id: string; name: string; color: string; score: number };
+export type PowerType = "bet" | "double" | "block" | "duel" | "rng" | "second" | "hint";
+
+/** One side of a 1v1. Without a player id, anyone on the team can buzz. */
+export type Duelist = { teamId: string; playerId?: string; name?: string };
+
+export type Team = {
+  id: string;
+  name: string;
+  color: string;
+  score: number;
+  /** Power-ups the team holds, by type. */
+  powers?: Partial<Record<PowerType, number>>;
+  /** True once the team leader has drafted their starting power-ups. */
+  drafted?: boolean;
+};
+
+export type PowerSettings = {
+  /** Power-ups in play. Empty turns the feature off. */
+  enabled: PowerType[];
+  /** How many power-ups each team leader drafts. */
+  draftCount: number;
+};
+
+/** Board-phase power-up waiting to apply to the next question. */
+export type QueuedPower = {
+  teamId: string;
+  power: "bet" | "double" | "block" | "duel";
+  targetTeamId?: string;
+  /** For a 1v1: the challenger first, then the opponent. */
+  duel?: [Duelist, Duelist];
+};
+
+export type PowerEffects = {
+  /** Teams betting against whoever answers next. */
+  bets: string[];
+  doubled: string[];
+  /** Teams that can't buzz or answer this question, with the team that blocked them. */
+  blocked: { teamId: string; by: string }[];
+  /** Teams with an unused second answer. */
+  second: string[];
+  /** Teams that used their second answer already. */
+  retried: string[];
+  hints: string[];
+  /** Only these two can buzz; a correct answer takes the points from the other side. */
+  duel?: [Duelist, Duelist];
+};
+
+export type PowerNotice = {
+  id: string;
+  teamId: string;
+  power: PowerType;
+  kind: "used" | "found";
+  targetTeamId?: string;
+  detail?: string;
+};
 
 export type CluePhase = {
   kind: "clue";
@@ -66,6 +124,11 @@ export type CluePhase = {
   questionHidden?: boolean;
   /** Countdown mode: the team that chose this tile answers first, before anyone can buzz. */
   pickedBy?: string;
+  /** Random question power-up: `teamId` must answer first (no passing), in either buzz mode. */
+  forced?: { teamId: string; by: string };
+  effects?: PowerEffects;
+  /** Team that won this tile's hidden power-up. */
+  powerFoundBy?: string;
 };
 
 export type FinalStep = "wager" | "clue" | "reveal" | "done";
@@ -108,6 +171,9 @@ export type GameState = {
   controlTeam?: string;
   /** Next quickfire question, so leaving the round and coming back continues where it stopped. */
   quickfireNext?: number;
+  powerSettings?: PowerSettings;
+  queued?: QueuedPower[];
+  powerNotice?: PowerNotice;
 };
 
 export type RoomMode = "live" | "local";
@@ -128,6 +194,8 @@ export type Player = {
   name: string;
   teamId: string | null;
   connected: boolean;
+  /** First player to join the team; the only one who can draft and use power-ups. */
+  leader?: boolean;
 };
 
 export type BuzzEntry = {
@@ -161,6 +229,11 @@ export type PublicSnapshot = {
   teams: Team[];
   players: Player[];
   buzz: BuzzState;
+  powerSettings?: PowerSettings;
+  queued: QueuedPower[];
+  powerNotice?: PowerNotice;
+  /** Team currently answering a regular clue, if any. */
+  answeringTeam?: string;
   phase:
     | { kind: "board" }
     | {
@@ -171,6 +244,9 @@ export type PublicSnapshot = {
         revealed: boolean;
         resolvedBy?: string;
         pickedBy?: string;
+        forced?: { teamId: string; by: string };
+        effects?: PowerEffects;
+        powerFoundBy?: string;
         dailyDouble?: { teamId?: string; wager?: number; maxWager?: number };
       }
     | {
@@ -221,6 +297,17 @@ export type GameAction =
   | { type: "quickfire:skip" }
   | { type: "quickfire:reveal" }
   | { type: "quickfire:next" }
+  | { type: "power:settings"; enabled: PowerType[]; draftCount: number }
+  | { type: "power:draft"; teamId: string; picks: PowerType[] }
+  | { type: "power:give"; teamId: string; power: PowerType; delta: number }
+  | {
+      type: "power:use";
+      teamId: string;
+      power: PowerType;
+      targetTeamId?: string;
+      /** 1v1 players; the server fills in names. */
+      duel?: { playerId?: string; playerName?: string; targetPlayerId?: string; targetPlayerName?: string };
+    }
   | { type: "game:board" }
   | { type: "game:end" }
   | { type: "game:reset" };

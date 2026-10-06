@@ -10,6 +10,7 @@ import { StartGameDialog } from "@/components/StartGameDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
 import { emptyCategory, emptyClue, newId } from "@/lib/board";
+import { isPowerType, POWER_TYPES, POWERS } from "@/lib/powers";
 import type { Board, Clue, FinalJeopardy, Quickfire, QuickfireQuestion } from "@/lib/types";
 
 type SaveStatus = "saved" | "saving" | "unsaved" | "error";
@@ -379,6 +380,33 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
                   value={selectedClue.answerMedia}
                   onChange={(answerMedia) => updateClue(selectedCategory.id, selectedClue.id, { answerMedia })}
                 />
+                <Field label="Hint (optional, shown if a team uses a Hint power-up)">
+                  <input
+                    className="field"
+                    value={selectedClue.hint ?? ""}
+                    onChange={(e) =>
+                      updateClue(selectedCategory.id, selectedClue.id, { hint: e.target.value || undefined })
+                    }
+                  />
+                </Field>
+                <Field label="Hidden power-up (secret until someone wins this tile)">
+                  <select
+                    className="field"
+                    value={selectedClue.powerup ?? ""}
+                    onChange={(e) =>
+                      updateClue(selectedCategory.id, selectedClue.id, {
+                        powerup: isPowerType(e.target.value) ? e.target.value : undefined,
+                      })
+                    }
+                  >
+                    <option value="">None</option>
+                    {POWER_TYPES.map((p) => (
+                      <option key={p} value={p}>
+                        {POWERS[p].icon} {POWERS[p].name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
                 <label className="flex cursor-pointer items-center justify-between border border-line-strong p-3">
                   <span>
                     <span className="block font-medium">Daily Double</span>
@@ -681,6 +709,7 @@ function RowCells({
             <span className="mt-auto flex gap-1.5 pt-2">
               {clue.media && <Badge>{clue.media.type === "image" ? "IMG" : "YT"}</Badge>}
               {clue.dailyDouble && <Badge accent>DD</Badge>}
+              {clue.powerup && <Badge accent>{POWERS[clue.powerup].icon}</Badge>}
               {clue.question && !clue.answer && <Badge warn>No answer</Badge>}
             </span>
           </button>

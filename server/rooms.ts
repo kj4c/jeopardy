@@ -1,6 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { findClue } from "../lib/board";
-import { ddMaxWager, finalMaxWager, gameReducer } from "../lib/gameReducer";
+import { answeringTeam, ddMaxWager, finalMaxWager, forcedTeam, gameReducer, isOut } from "../lib/gameReducer";
+import { isPowerType, POWERS } from "../lib/powers";
 import type {
   Board,
   BuzzState,
@@ -14,7 +15,7 @@ import type {
 import { hasBoardAccess } from "./auth";
 import { getBoard, getPasswordHash, getRoom, updateRoom } from "./db";
 
-type LivePlayer = Player & { sockets: Set<string>; latency: number; penaltyUntil: number };
+type LivePlayer = Player & { sockets: Set<string>; latency: number; penaltyUntil: number; teamJoinedAt: number };
 
 type LiveRoom = {
   room: Room;
@@ -57,8 +58,29 @@ function load(slug: string): LiveRoom | null {
   return entry;
 }
 
+/** First player to join the team, preferring someone who's still connected. */
+function leaderOf(lr: LiveRoom, teamId: string): LivePlayer | undefined {
+  const members = [...lr.players.values()]
+    .filter((p) => p.teamId === teamId)
+    .sort((a, b) => a.teamJoinedAt - b.teamJoinedAt);
+  return members.find((p) => p.connected) ?? members[0];
+}
+
+/** Player on the team whose name matches, so a typed 1v1 name can limit buzzing to their phone. */
+function findByName(lr: LiveRoom, teamId: string, name: string): string | undefined {
+  const wanted = name.toLowerCase();
+  return [...lr.players.values()].find((p) => p.teamId === teamId && p.name.trim().toLowerCase() === wanted)?.id;
+}
+
 function playersList(lr: LiveRoom): Player[] {
-  return [...lr.players.values()].map(({ id, name, teamId, connected }) => ({ id, name, teamId, connected }));
+  const leaders = new Set(lr.room.state.teams.map((t) => leaderOf(lr, t.id)?.id));
+  return [...lr.players.values()].map(({ id, name, teamId, connected }) => ({
+    id,
+    name,
+    teamId,
+    connected,
+    leader: leaders.has(id),
+  }));
 }
 
 function hostSnapshot(lr: LiveRoom): HostSnapshot {
@@ -80,6 +102,9 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
       revealed: state.phase.revealed,
       resolvedBy: state.phase.resolvedBy,
       pickedBy: state.phase.pickedBy,
+      forced: state.phase.forced,
+      effects: state.phase.effects,
+      powerFoundBy: state.phase.powerFoundBy,
       dailyDouble: dd
         ? {
             ...dd,
@@ -124,6 +149,10 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
     players: lr.players ?? [],
     buzz: lr.buzz,
     phase,
+    powerSettings: state.powerSettings,
+    queued: state.queued ?? [],
+    powerNotice: state.powerNotice,
+    answeringTeam: answeringTeam(state, lr.buzz, room.mode),
   };
 }
 
@@ -156,7 +185,7 @@ function armBuzzers(lr: LiveRoom) {
 /** Clears buzzes, then reopens buzzers straight away if the room is in instant mode with a clue up. */
 function refreshBuzz(lr: LiveRoom) {
   const { phase, buzzMode } = lr.room.state;
-  const canBuzz = phase.kind === "clue" && !phase.resolvedBy && !phase.dailyDouble;
+  const canBuzz = phase.kind === "clue" && !phase.resolvedBy && !phase.dailyDouble && !forcedTeam(phase);
   const quickfireOpen =
     phase.kind === "quickfire" && !phase.resolvedBy && phase.index < (lr.board.quickfire?.questions.length ?? 0);
   if (lr.room.mode === "live" && ((buzzMode === "instant" && canBuzz) || quickfireOpen)) armBuzzers(lr);
@@ -173,7 +202,9 @@ function applyAction(lr: LiveRoom, action: GameAction) {
     (before.phase.kind === "quickfire" && after.phase.kind === "quickfire" && before.phase.index !== after.phase.index);
   lr.room.state = after;
   const reshown = action.type === "clue:question" && !action.hidden && after.buzzMode === "instant";
-  if (clueChanged || reshown || action.type === "settings:buzz-mode") refreshBuzz(lr);
+  const forcedDone =
+    before.phase.kind === "clue" && after.phase.kind === "clue" && !!forcedTeam(before.phase) && !forcedTeam(after.phase);
+  if (clueChanged || reshown || forcedDone || action.type === "settings:buzz-mode") refreshBuzz(lr);
   if ((after.phase.kind === "clue" || after.phase.kind === "quickfire") && after.phase.resolvedBy) {
     lr.countdownToken++;
     lr.buzz = { ...lr.buzz, status: "idle", count: undefined };
@@ -222,7 +253,10 @@ function handleBuzz(lr: LiveRoom, player: LivePlayer): BuzzResult {
   if (!player.teamId || !lr.room.state.teams.some((t) => t.id === player.teamId)) {
     return { ok: false, reason: "noteam" };
   }
-  if (phase.kind === "clue" && phase.lockedTeams.includes(player.teamId)) return { ok: false, reason: "locked" };
+  if (phase.kind === "clue" && isOut(phase, player.teamId)) return { ok: false, reason: "locked" };
+  if (phase.kind === "clue" && forcedTeam(phase)) return { ok: false, reason: "closed" };
+  const duelist = phase.kind === "clue" ? phase.effects?.duel?.find((d) => d.teamId === player.teamId) : undefined;
+  if (duelist?.playerId && duelist.playerId !== player.id) return { ok: false, reason: "locked" };
   if (lr.buzz.status === "countdown") {
     player.penaltyUntil = lr.armAt + FALSE_START_PENALTY_MS;
     return { ok: false, reason: "early" };
@@ -375,6 +409,7 @@ export function attachRooms(server: Server) {
             sockets: new Set([socket.id]),
             latency: 0,
             penaltyUntil: 0,
+            teamJoinedAt: 0,
           });
         }
         ack?.({ ok: true });
@@ -394,6 +429,7 @@ export function attachRooms(server: Server) {
       if (!cur) return;
       const teamId = data?.teamId ?? null;
       if (teamId && !cur.lr.room.state.teams.some((t) => t.id === teamId)) return;
+      if (cur.player.teamId !== teamId) cur.player.teamJoinedAt = Date.now();
       cur.player.teamId = teamId;
       broadcast(cur.lr);
     });
@@ -432,6 +468,57 @@ export function attachRooms(server: Server) {
       ack?.(changed ? { ok: true } : { error: "not_accepted" });
       if (changed) broadcast(lr);
     });
+
+    const currentLeader = () => {
+      const cur = currentPlayer();
+      const teamId = cur?.player.teamId;
+      if (!cur || !teamId || leaderOf(cur.lr, teamId)?.id !== cur.player.id) return null;
+      return { ...cur, teamId };
+    };
+
+    socket.on("player:draft", (data: { picks: unknown[] }, ack?: (res: unknown) => void) => {
+      const cur = currentLeader();
+      if (!cur) return ack?.({ error: "not_leader" });
+      const picks = Array.isArray(data?.picks) ? data.picks.filter(isPowerType) : [];
+      const changed = applyAction(cur.lr, { type: "power:draft", teamId: cur.teamId, picks });
+      ack?.(changed ? { ok: true } : { error: "not_accepted" });
+      if (changed) broadcast(cur.lr);
+    });
+
+    socket.on(
+      "player:power",
+      (
+        data: { power: unknown; targetTeamId?: string; playerName?: string; targetPlayerName?: string },
+        ack?: (res: unknown) => void,
+      ) => {
+      const cur = currentLeader();
+      if (!cur) return ack?.({ error: "not_leader" });
+      const power = data?.power;
+      if (!isPowerType(power)) return ack?.({ error: "invalid" });
+      const { lr, teamId } = cur;
+      if (POWERS[power].timing === "answer" && answeringTeam(lr.room.state, lr.buzz, lr.room.mode) !== teamId) {
+        return ack?.({ error: "not_your_turn" });
+      }
+      const targetTeamId = typeof data.targetTeamId === "string" ? data.targetTeamId : undefined;
+      let duel: Extract<GameAction, { type: "power:use" }>["duel"];
+      if (power === "duel") {
+        const playerName = String(data.playerName ?? "").trim().slice(0, 24);
+        const targetPlayerName = String(data.targetPlayerName ?? "").trim().slice(0, 24);
+        if (!playerName || !targetPlayerName) return ack?.({ error: "invalid_players" });
+        const playerId = findByName(lr, teamId, playerName);
+        const targetPlayerId = targetTeamId ? findByName(lr, targetTeamId, targetPlayerName) : undefined;
+        duel = {
+          playerId,
+          targetPlayerId,
+          playerName: (playerId && lr.players.get(playerId)?.name) || playerName,
+          targetPlayerName: (targetPlayerId && lr.players.get(targetPlayerId)?.name) || targetPlayerName,
+        };
+      }
+      const changed = applyAction(lr, { type: "power:use", teamId, power, targetTeamId, duel });
+      ack?.(changed ? { ok: true } : { error: "not_accepted" });
+      if (changed) broadcast(lr);
+      },
+    );
 
     socket.on("player:final-answer", (data: { text: string }, ack?: (res: unknown) => void) => {
       const cur = currentPlayer();

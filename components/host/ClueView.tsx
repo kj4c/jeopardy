@@ -2,8 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { findClue, formatScore } from "@/lib/board";
-import { ddMaxWager } from "@/lib/gameReducer";
-import type { Board, BuzzEntry, BuzzMode, BuzzState, CluePhase, GameAction, RoomMode, Team } from "@/lib/types";
+import { ddMaxWager, isOut } from "@/lib/gameReducer";
+import { POWERS } from "@/lib/powers";
+import type {
+  Board,
+  BuzzEntry,
+  BuzzMode,
+  BuzzState,
+  CluePhase,
+  GameAction,
+  PowerType,
+  RoomMode,
+  Team,
+} from "@/lib/types";
 import { GradientBackground } from "../GradientBackground";
 import { MediaRenderer } from "../MediaRenderer";
 import { BuzzModeToggle } from "./BuzzModeToggle";
@@ -24,6 +35,7 @@ export function ClueView({
   dispatch,
   onCountdown,
   onResetBuzz,
+  onOpenPowerups,
 }: {
   board: Board;
   phase: CluePhase;
@@ -34,6 +46,7 @@ export function ClueView({
   dispatch: (a: GameAction) => void;
   onCountdown: () => void;
   onResetBuzz: () => void;
+  onOpenPowerups: () => void;
 }) {
   const found = findClue(board, phase.clueId);
   const [showAllBuzzes, setShowAllBuzzes] = useState(false);
@@ -43,11 +56,15 @@ export function ClueView({
   const live = mode === "live";
   const showClue = !dd || dd.wager !== undefined;
   const instant = buzzMode === "instant";
-  const turnBased = !instant && !dd && !phase.resolvedBy;
+  const open = !dd && !phase.resolvedBy;
+  const forced = open ? phase.forced : undefined;
+  const turnBased = open && (!instant || !!forced);
+  const canCountdown = turnBased && !instant;
   const pickedTeam = turnBased && phase.pickedBy ? teams.find((t) => t.id === phase.pickedBy) : undefined;
-  const pickedPending = !!pickedTeam && !phase.lockedTeams.includes(pickedTeam.id);
-  const current =
-    live && !dd && !pickedPending ? buzz.buzzes.find((b) => !phase.lockedTeams.includes(b.teamId)) : undefined;
+  const pickedPending = !!pickedTeam && !isOut(phase, pickedTeam.id);
+  const current = live && !dd && !pickedPending ? buzz.buzzes.find((b) => !isOut(phase, b.teamId)) : undefined;
+  const fx = dd ? undefined : phase.effects;
+  const teamName = (id: string) => teams.find((t) => t.id === id);
   const currentTeam = pickedPending ? pickedTeam : current ? teams.find((t) => t.id === current.teamId) : undefined;
   const questionHidden = !!phase.questionHidden && !phase.revealed && !phase.resolvedBy;
 
@@ -55,7 +72,7 @@ export function ClueView({
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest("input,textarea")) return;
       const key = e.key.toLowerCase();
-      if (e.code === "Space" && showClue && turnBased && !pickedPending) {
+      if (e.code === "Space" && showClue && canCountdown && !pickedPending) {
         e.preventDefault();
         onCountdown();
       } else if (key === "a" && showClue) {
@@ -66,7 +83,7 @@ export function ClueView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showClue, turnBased, pickedPending, phase.revealed, phase.questionHidden, onCountdown, dispatch]);
+  }, [showClue, canCountdown, pickedPending, phase.revealed, phase.questionHidden, onCountdown, dispatch]);
 
   if (!found) return null;
   const { clue, category, value } = found;
@@ -81,7 +98,10 @@ export function ClueView({
           {category.title} · {dd ? "Daily Double" : `$${value.toLocaleString("en-US")}`}
           {dd?.wager !== undefined && ` · wager ${formatScore(dd.wager)}`}
         </p>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <button className="btn btn-ghost btn-sm" onClick={onOpenPowerups}>
+            Power-ups
+          </button>
           <BuzzModeToggle mode={buzzMode} dispatch={dispatch} />
         </div>
         <button
@@ -162,7 +182,7 @@ export function ClueView({
                 </div>
               )}
               <div className="mt-4 flex flex-wrap items-center justify-center gap-4">
-                {pickedPending && pickedTeam && (
+                {pickedPending && pickedTeam && !forced && (
                   <button
                     className="btn btn-primary px-10 py-5 text-2xl"
                     onClick={() => dispatch({ type: "clue:pass", teamId: pickedTeam.id })}
@@ -171,7 +191,7 @@ export function ClueView({
                     {pickedTeam.name} passes
                   </button>
                 )}
-                {turnBased && !pickedPending && (
+                {canCountdown && !pickedPending && (
                   <button
                     className="btn btn-primary px-10 py-5 text-2xl"
                     onClick={onCountdown}
@@ -198,7 +218,23 @@ export function ClueView({
                   </button>
                 )}
               </div>
-              {turnBased && (
+              {forced && (
+                <ForcedBanner
+                  team={teamName(forced.teamId)}
+                  by={teamName(forced.by)}
+                  pending={pickedPending}
+                  instant={instant}
+                />
+              )}
+              <PowerStrip
+                fx={fx}
+                hint={clue.hint}
+                resolved={!!phase.resolvedBy}
+                foundBy={phase.powerFoundBy ? teamName(phase.powerFoundBy) : undefined}
+                foundPower={clue.powerup}
+                teamName={teamName}
+              />
+              {turnBased && !fx?.duel && !forced && (
                 <PickedByPicker
                   teams={teams}
                   pickedBy={phase.pickedBy}
@@ -252,8 +288,24 @@ export function ClueView({
                   <JudgeChip
                     key={t.id}
                     team={t}
-                    amount={dd ? (dd.wager ?? 0) : value}
-                    locked={!dd && phase.lockedTeams.includes(t.id)}
+                    amount={dd ? (dd.wager ?? 0) : value * (fx?.doubled.includes(t.id) ? 2 : 1)}
+                    locked={!dd && isOut(phase, t.id)}
+                    lockedLabel={
+                      fx?.blocked.some((b) => b.teamId === t.id)
+                        ? "Blocked"
+                        : fx?.duel && !fx.duel.some((d) => d.teamId === t.id)
+                          ? "Not in the 1v1"
+                          : undefined
+                    }
+                    note={
+                      fx?.second.includes(t.id)
+                        ? "2 tries"
+                        : fx?.retried.includes(t.id)
+                          ? "Last try"
+                          : fx?.doubled.includes(t.id)
+                            ? "Doubled"
+                            : undefined
+                    }
                     active={currentTeam?.id === t.id || !!dd}
                     onJudge={(correct) => dispatch({ type: "clue:judge", teamId: t.id, correct })}
                   />
@@ -263,6 +315,102 @@ export function ClueView({
           )}
         </footer>
       )}
+    </div>
+  );
+}
+
+function PowerStrip({
+  fx,
+  hint,
+  resolved,
+  foundBy,
+  foundPower,
+  teamName,
+}: {
+  fx?: CluePhase["effects"];
+  hint?: string;
+  resolved: boolean;
+  foundBy?: Team;
+  foundPower?: PowerType;
+  teamName: (id: string) => Team | undefined;
+}) {
+  const chips: { key: string; team?: Team; text: string }[] = [];
+  for (const id of fx?.doubled ?? []) chips.push({ key: `d${id}`, team: teamName(id), text: `${POWERS.double.icon} doubled` });
+  for (const id of fx?.bets ?? []) chips.push({ key: `b${id}`, team: teamName(id), text: `${POWERS.bet.icon} betting against the next answer` });
+  for (const b of fx?.blocked ?? []) {
+    chips.push({ key: `k${b.teamId}`, team: teamName(b.teamId), text: `${POWERS.block.icon} blocked by ${teamName(b.by)?.name ?? "?"}` });
+  }
+  for (const id of fx?.second ?? []) chips.push({ key: `s${id}`, team: teamName(id), text: `${POWERS.second.icon} gets two answers` });
+  for (const id of fx?.retried ?? []) {
+    if (!resolved) chips.push({ key: `r${id}`, team: teamName(id), text: `${POWERS.second.icon} second answer!` });
+  }
+  const hinted = (fx?.hints ?? []).map(teamName).filter(Boolean) as Team[];
+  const duel = fx?.duel;
+
+  if (!chips.length && !hinted.length && !foundBy && !duel) return null;
+  return (
+    <div className="flex max-w-5xl flex-col items-center gap-3">
+      {duel && (
+        <div className="animate-pop flex flex-wrap items-center justify-center gap-x-5 gap-y-1">
+          {duel.map((d, i) => {
+            const t = teamName(d.teamId);
+            return (
+              <span key={d.teamId} className="flex items-center gap-5">
+                {i === 1 && <span className="font-display text-3xl text-muted">{POWERS.duel.icon} vs</span>}
+                <span className="text-center">
+                  <span className="font-display block text-[clamp(1.8rem,3.4vw,3.2rem)] leading-none" style={{ color: t?.color }}>
+                    {d.name ?? t?.name}
+                  </span>
+                  {d.name && <span className="label">{t?.name}</span>}
+                </span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {hinted.length > 0 && !resolved && (
+        <div className="animate-pop border-2 border-coral/60 bg-coral/10 px-6 py-3">
+          <p className="label mb-1 !text-coral">
+            {POWERS.hint.icon} Hint for {hinted.map((t) => t.name).join(" & ")}
+          </p>
+          <p className="font-display text-[clamp(1.6rem,3vw,2.8rem)] leading-tight">{hint || "Host, give them a hint!"}</p>
+        </div>
+      )}
+      {foundBy && foundPower && (
+        <p className="animate-pop label !text-base">
+          <span style={{ color: foundBy.color }}>{foundBy.name}</span> found a hidden power-up: {POWERS[foundPower].icon}{" "}
+          {POWERS[foundPower].name}
+        </p>
+      )}
+      {chips.length > 0 && (
+        <div className="flex flex-wrap justify-center gap-2">
+          {chips.map((c) => (
+            <span key={c.key} className="border px-3 py-1 text-sm" style={{ borderColor: c.team?.color }}>
+              <span style={{ color: c.team?.color }}>{c.team?.name}</span> {c.text}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ForcedBanner({ team, by, pending, instant }: { team?: Team; by?: Team; pending: boolean; instant: boolean }) {
+  if (!team) return null;
+  return (
+    <div className="animate-pop flex flex-col items-center gap-1">
+      <p className="font-display text-[clamp(1.6rem,3vw,2.8rem)] leading-tight">
+        {POWERS.rng.icon} <span style={{ color: team.color }}>{team.name}</span>{" "}
+        {pending ? "must answer this one" : "is out"}
+      </p>
+      <p className="label">
+        {by && (
+          <>
+            Sent by <span style={{ color: by.color }}>{by.name}</span> ·{" "}
+          </>
+        )}
+        {pending ? "no passing · buzzers open after they answer" : instant ? "buzzers are open" : "count down for the rest"}
+      </p>
     </div>
   );
 }
@@ -349,6 +497,8 @@ export function JudgeChip({
   amount,
   penalty = amount,
   locked,
+  lockedLabel = "Locked out",
+  note,
   active,
   onJudge,
 }: {
@@ -357,6 +507,8 @@ export function JudgeChip({
   /** Points lost for a wrong answer. */
   penalty?: number;
   locked: boolean;
+  lockedLabel?: string;
+  note?: string;
   active: boolean;
   onJudge: (correct: boolean) => void;
 }) {
@@ -392,14 +544,17 @@ export function JudgeChip({
         </span>
       )}
       <div className="flex items-baseline justify-between gap-3 px-4 pb-2 pt-3">
-        <span className="truncate text-2xl font-semibold">{team.name}</span>
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate text-2xl font-semibold">{team.name}</span>
+          {note && <span className="label shrink-0 !text-coral">{note}</span>}
+        </span>
         <span className={`shrink-0 text-2xl font-bold tabular-nums ${team.score < 0 ? "text-bad" : ""}`}>
           {formatScore(team.score)}
         </span>
       </div>
       {locked ? (
         <div className="flex flex-1 items-center justify-center border-t border-line-strong py-4 text-xl text-bad">
-          Locked out
+          {lockedLabel}
         </div>
       ) : (
         <div className="grid flex-1 grid-cols-2 border-t border-line-strong">

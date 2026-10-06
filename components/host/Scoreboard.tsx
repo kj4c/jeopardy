@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { formatScore, TEAM_COLORS } from "@/lib/board";
-import type { GameAction, Player, Team } from "@/lib/types";
+import { POWER_TYPES, POWERS } from "@/lib/powers";
+import type { GameAction, Player, QueuedPower, Team } from "@/lib/types";
 
 export function Scoreboard({
   teams,
@@ -10,12 +11,14 @@ export function Scoreboard({
   step,
   dispatch,
   highlight,
+  queued = [],
 }: {
   teams: Team[];
   players?: Player[];
   step: number;
   dispatch: (a: GameAction) => void;
   highlight?: string;
+  queued?: QueuedPower[];
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -56,6 +59,24 @@ export function Scoreboard({
                 <p className="label flex items-center gap-2 !text-cream/80">
                   {team.name}
                   {count !== undefined && <span className="text-muted">· {count} online</span>}
+                </p>
+              )}
+              {(POWER_TYPES.some((p) => team.powers?.[p]) || queued.some((q) => q.teamId === team.id)) && (
+                <p className="mt-1 flex flex-wrap gap-x-2 text-xs text-muted">
+                  {POWER_TYPES.filter((p) => team.powers?.[p]).map((p) => (
+                    <span key={p} title={POWERS[p].name}>
+                      {POWERS[p].icon}
+                      {(team.powers?.[p] ?? 0) > 1 && `×${team.powers?.[p]}`}
+                    </span>
+                  ))}
+                  {queued
+                    .filter((q) => q.teamId === team.id)
+                    .map((q) => (
+                      <span key={q.power} className="text-coral" title="Applies to the next question">
+                        {POWERS[q.power].name} ready
+                        {q.targetTeamId && ` → ${teams.find((t) => t.id === q.targetTeamId)?.name ?? ""}`}
+                      </span>
+                    ))}
                 </p>
               )}
               <div className="mt-1 flex items-center justify-between gap-3">

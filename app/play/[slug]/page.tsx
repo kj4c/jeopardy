@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GradientBackground } from "@/components/GradientBackground";
+import { PowerNoticeToast } from "@/components/PowerNoticeToast";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { formatScore } from "@/lib/board";
+import { POWER_TYPES, POWERS } from "@/lib/powers";
 import { emitAck, getPlayerId, getSocket } from "@/lib/socket";
-import type { PublicSnapshot, Team } from "@/lib/types";
+import type { Player, PowerType, PublicSnapshot, Team } from "@/lib/types";
 
 const NAME_KEY = "jeopardy_name";
 
@@ -174,7 +176,9 @@ export default function PlayPage() {
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
         <PlayerStage snap={snap} myTeam={myTeam} playerId={playerId.current} />
       </div>
+      {snap.mode === "live" && me && <PowerPanel snap={snap} myTeam={myTeam} me={me} />}
       <TeamStrip teams={snap.teams} myTeamId={myTeam.id} />
+      <PowerNoticeToast notice={snap.powerNotice} teams={snap.teams} />
     </main>
   );
 }
@@ -332,7 +336,27 @@ function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam:
         />
       );
     }
-    return <Buzzer snap={snap} myTeam={myTeam} playerId={playerId} locked={phase.lockedTeams.includes(myTeam.id)} />;
+    const duel = phase.effects?.duel;
+    if (duel) {
+      const mine = duel.find((d) => d.teamId === myTeam.id);
+      const label = duel
+        .map((d) => `${d.name ?? "anyone"} (${snap.teams.find((t) => t.id === d.teamId)?.name ?? "?"})`)
+        .join(" vs ");
+      if (!mine) return <Waiting title="1v1" body={`${label}. Sit tight and watch.`} />;
+      if (mine.playerId && mine.playerId !== playerId) {
+        return <Waiting title="1v1" body={`Only ${mine.name} can buzz for your team. ${label}.`} />;
+      }
+    }
+    const blocker = phase.effects?.blocked.find((b) => b.teamId === myTeam.id)?.by;
+    return (
+      <Buzzer
+        snap={snap}
+        myTeam={myTeam}
+        playerId={playerId}
+        locked={phase.lockedTeams.includes(myTeam.id) || !!blocker}
+        blockedBy={blocker ? snap.teams.find((t) => t.id === blocker)?.name ?? "another team" : undefined}
+      />
+    );
   }
 
   if (phase.kind === "ended") {
@@ -413,11 +437,13 @@ function Buzzer({
   myTeam,
   playerId,
   locked,
+  blockedBy,
 }: {
   snap: PublicSnapshot;
   myTeam: Team;
   playerId: string;
   locked: boolean;
+  blockedBy?: string;
 }) {
   const { buzz } = snap;
   const [feedback, setFeedback] = useState<BuzzFeedback>(null);
@@ -450,16 +476,23 @@ function Buzzer({
   }, [pending, myIndex, locked]);
 
   const phase = snap.phase;
+  const forced = phase.kind === "clue" ? phase.forced : undefined;
   const pickedBy =
-    phase.kind === "clue" && snap.buzzMode === "countdown" && !phase.lockedTeams.includes(phase.pickedBy ?? "")
+    phase.kind === "clue" &&
+    (snap.buzzMode === "countdown" || forced) &&
+    !phase.lockedTeams.includes(phase.pickedBy ?? "")
       ? phase.pickedBy
       : undefined;
   const pickedTeam = pickedBy ? snap.teams.find((t) => t.id === pickedBy) : undefined;
+  const sender = forced ? snap.teams.find((t) => t.id === forced.by)?.name : undefined;
   let title: string;
   let sub = "";
-  if (locked) {
+  if (blockedBy) {
+    title = "Blocked";
+    sub = `${blockedBy} blocked your team from this question.`;
+  } else if (locked) {
     title = "Locked out";
-    sub = "Your team answered wrong on this one.";
+    sub = "Your team is out on this one.";
   } else if (myIndex !== -1) {
     title = `You buzzed ${ordinal(myIndex + 1)}`;
     sub =
@@ -475,6 +508,12 @@ function Buzzer({
     title = "BUZZ";
     sub =
       feedback === "penalty" ? "Penalty… hold on" : snap.buzzMode === "instant" ? "Buzzing hides the question!" : "";
+  } else if (pickedTeam && forced) {
+    title = pickedTeam.id === myTeam.id ? "You're up" : `${pickedTeam.name} first`;
+    sub =
+      pickedTeam.id === myTeam.id
+        ? `${sender ?? "Another team"} sent you this random question. You have to answer it!`
+        : `${sender ?? "A team"} sent them a random question. You can buzz once they've answered.`;
   } else if (pickedTeam) {
     title = pickedTeam.id === myTeam.id ? "Your pick" : `${pickedTeam.name} first`;
     sub =
@@ -613,5 +652,263 @@ function FinalAnswerInput() {
         Submit response
       </button>
     </form>
+  );
+}
+
+function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; me: Player }) {
+  const settings = snap.powerSettings;
+  const owned = POWER_TYPES.filter((p) => (myTeam.powers?.[p] ?? 0) > 0);
+  const queued = snap.queued.filter((q) => q.teamId === myTeam.id);
+  const leader = snap.players.find((p) => p.teamId === myTeam.id && p.leader);
+  const [error, setError] = useState("");
+  const [targeting, setTargeting] = useState<PowerType | null>(null);
+
+  const [busy, setBusy] = useState(false);
+
+  const needsDraft = !!settings?.enabled.length && settings.draftCount > 0 && !myTeam.drafted;
+  if (!needsDraft && !owned.length && !queued.length) return null;
+
+  const phase = snap.phase;
+  const fx = phase.kind === "clue" ? phase.effects : undefined;
+  const myTurn = snap.answeringTeam === myTeam.id;
+  const usable = (p: PowerType) => {
+    if (POWERS[p].timing === "board") return phase.kind === "board" && !queued.some((q) => q.power === p);
+    if (!myTurn) return false;
+    if (p === "second") return !fx?.second.includes(myTeam.id) && !fx?.retried.includes(myTeam.id);
+    return !fx?.hints.includes(myTeam.id);
+  };
+
+  async function use(power: PowerType, targetTeamId?: string, names?: { playerName: string; targetPlayerName: string }) {
+    setBusy(true);
+    setError("");
+    const res = await emitAck<{ ok?: boolean; error?: string }>("player:power", {
+      power,
+      targetTeamId,
+      ...names,
+    }).catch(() => ({ error: "timeout" }));
+    setBusy(false);
+    setTargeting(null);
+    if (res.error) setError(res.error === "not_your_turn" ? "Wait until your team is answering." : "Couldn't use that right now.");
+    else vibrate(60);
+  }
+
+  if (needsDraft) {
+    return me.leader ? (
+      <DraftPicker enabled={settings!.enabled} count={settings!.draftCount} />
+    ) : (
+      <section className="border-t border-line bg-ink/60 px-4 py-3 text-center text-sm text-muted backdrop-blur-md">
+        {leader ? `${leader.name} is picking your team's power-ups.` : "Your team leader picks power-ups."}
+      </section>
+    );
+  }
+
+  return (
+    <section className="border-t border-line bg-ink/60 px-4 py-3 backdrop-blur-md">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="label">Team power-ups</p>
+        {!me.leader && leader && <p className="text-xs text-muted">Only {leader.name} can use them</p>}
+      </div>
+      {queued.length > 0 && (
+        <p className="mb-2 text-sm text-coral">
+          Ready for the next question:{" "}
+          {queued
+            .map((q) => `${POWERS[q.power].name}${q.targetTeamId ? ` → ${snap.teams.find((t) => t.id === q.targetTeamId)?.name ?? ""}` : ""}`)
+            .join(", ")}
+        </p>
+      )}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {owned.map((p) => {
+          const info = POWERS[p];
+          const can = me.leader && usable(p) && !busy;
+          return (
+            <button
+              key={p}
+              disabled={!can}
+              onClick={() => (POWERS[p].needsTarget ? setTargeting(targeting === p ? null : p) : use(p))}
+              className={`flex min-w-36 shrink-0 flex-col items-start border p-2.5 text-left transition ${
+                can ? "border-coral/70 bg-coral/10 active:scale-[0.98]" : "border-line-strong opacity-60"
+              }`}
+            >
+              <span className="text-sm font-medium">
+                {info.icon} {info.name} {(myTeam.powers?.[p] ?? 0) > 1 && <span className="text-muted">×{myTeam.powers?.[p]}</span>}
+              </span>
+              <span className="text-xs text-muted">
+                {info.timing === "board" ? "Use before a question is picked" : "Use when your team is answering"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {(targeting === "block" || targeting === "rng") && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted">
+            {targeting === "block" ? "Block which team?" : "Send a random question to which team?"}
+          </span>
+          {snap.teams
+            .filter((t) => t.id !== myTeam.id)
+            .map((t) => (
+              <button key={t.id} className="btn btn-ghost btn-sm" style={{ borderColor: t.color }} onClick={() => use(targeting, t.id)}>
+                {t.name}
+              </button>
+            ))}
+        </div>
+      )}
+      {targeting === "duel" && (
+        <DuelPicker
+          snap={snap}
+          myTeamId={myTeam.id}
+          busy={busy}
+          onSubmit={(teamId, names) => use("duel", teamId, names)}
+          onCancel={() => setTargeting(null)}
+        />
+      )}
+      {error && <p className="mt-2 text-sm text-bad">{error}</p>}
+    </section>
+  );
+}
+
+function DuelPicker({
+  snap,
+  myTeamId,
+  busy,
+  onSubmit,
+  onCancel,
+}: {
+  snap: PublicSnapshot;
+  myTeamId: string;
+  busy: boolean;
+  onSubmit: (teamId: string, names: { playerName: string; targetPlayerName: string }) => void;
+  onCancel: () => void;
+}) {
+  const [team, setTeam] = useState<string | null>(null);
+  const [opponent, setOpponent] = useState("");
+  const [mine, setMine] = useState("");
+  const namesOn = (teamId: string) => snap.players.filter((p) => p.teamId === teamId).map((p) => p.name);
+  const target = snap.teams.find((t) => t.id === team);
+
+  if (!team || !target) {
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted">Challenge which team?</span>
+        {snap.teams
+          .filter((t) => t.id !== myTeamId)
+          .map((t) => (
+            <button key={t.id} className="btn btn-ghost btn-sm" style={{ borderColor: t.color }} onClick={() => setTeam(t.id)}>
+              {t.name}
+            </button>
+          ))}
+        <button className="btn btn-ghost btn-sm" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
+  return (
+    <form
+      className="mt-2 space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (opponent.trim() && mine.trim()) onSubmit(team, { playerName: mine.trim(), targetPlayerName: opponent.trim() });
+      }}
+    >
+      <input
+        className="field py-2"
+        placeholder={`Who answers for ${target.name}?`}
+        value={opponent}
+        onChange={(e) => setOpponent(e.target.value)}
+        list="duel-opponents"
+        maxLength={24}
+        autoFocus
+      />
+      <datalist id="duel-opponents">
+        {namesOn(team).map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
+      <input
+        className="field py-2"
+        placeholder="Who answers for your team?"
+        value={mine}
+        onChange={(e) => setMine(e.target.value)}
+        list="duel-mine"
+        maxLength={24}
+      />
+      <datalist id="duel-mine">
+        {namesOn(myTeamId).map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
+      <div className="flex gap-2">
+        <button className="btn btn-primary btn-sm flex-1" disabled={busy || !opponent.trim() || !mine.trim()}>
+          Start 1v1
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setTeam(null)}>
+          Back
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function DraftPicker({ enabled, count }: { enabled: PowerType[]; count: number }) {
+  const [picks, setPicks] = useState<PowerType[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const left = count - picks.length;
+  const n = (p: PowerType) => picks.filter((x) => x === p).length;
+
+  return (
+    <section className="border-t border-line bg-ink/80 px-4 py-4 backdrop-blur-md">
+      <p className="label mb-1">You&apos;re the team leader</p>
+      <p className="font-display mb-3 text-2xl">
+        Pick {count} power-up{count === 1 ? "" : "s"} <span className="text-muted">· {left} left</span>
+      </p>
+      <div className="max-h-[38vh] space-y-2 overflow-y-auto">
+        {enabled.map((p) => {
+          const info = POWERS[p];
+          return (
+            <div key={p} className="flex items-center gap-3 border border-line-strong p-2.5">
+              <span className="text-2xl">{info.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">{info.name}</span>
+                <span className="block text-xs text-muted">{info.description}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1">
+                <button
+                  className="btn btn-ghost btn-sm px-2.5"
+                  disabled={!n(p)}
+                  onClick={() => {
+                    const i = picks.indexOf(p);
+                    setPicks(picks.filter((_, j) => j !== i));
+                  }}
+                >
+                  −
+                </button>
+                <span className="w-5 text-center font-bold tabular-nums">{n(p)}</span>
+                <button className="btn btn-ghost btn-sm px-2.5" disabled={left <= 0} onClick={() => setPicks([...picks, p])}>
+                  +
+                </button>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {error && <p className="mt-2 text-sm text-bad">{error}</p>}
+      <button
+        className="btn btn-primary mt-3 w-full"
+        disabled={busy || left !== 0}
+        onClick={async () => {
+          setBusy(true);
+          const res = await emitAck<{ ok?: boolean; error?: string }>("player:draft", { picks }).catch(() => ({ error: "timeout" }));
+          setBusy(false);
+          if (res.error) setError("Couldn't lock in. Try again.");
+        }}
+      >
+        Lock in
+      </button>
+    </section>
   );
 }

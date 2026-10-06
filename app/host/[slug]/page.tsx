@@ -9,12 +9,15 @@ import { ClueView } from "@/components/host/ClueView";
 import { CountdownOverlay } from "@/components/host/CountdownOverlay";
 import { EndedView } from "@/components/host/EndedView";
 import { FinalView } from "@/components/host/FinalView";
+import { PowerupsDialog } from "@/components/host/PowerupsDialog";
+import { PowerNoticeToast } from "@/components/PowerNoticeToast";
 import { JoinPanel } from "@/components/host/JoinPanel";
 import { PlayBoard } from "@/components/host/PlayBoard";
 import { QuickfireView } from "@/components/host/QuickfireView";
 import { Scoreboard } from "@/components/host/Scoreboard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UnlockBoard } from "@/components/UnlockBoard";
+import { isOut } from "@/lib/gameReducer";
 import { sounds } from "@/lib/sound";
 import type { GameAction } from "@/lib/types";
 import { useHostGame } from "@/lib/useHostGame";
@@ -24,6 +27,7 @@ export default function HostPage() {
   const game = useHostGame(slug);
   const { room, board, buzz, players, dispatch: rawDispatch } = game;
   const [showJoin, setShowJoin] = useState(true);
+  const [powersOpen, setPowersOpen] = useState(false);
   const [localCount, setLocalCount] = useState<number | undefined>();
   const [goFlash, setGoFlash] = useState(false);
   const localTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -102,7 +106,7 @@ export default function HostPage() {
   const step = board.rowValues.length ? Math.min(...board.rowValues.filter((v) => v > 0), 100) : 100;
   const currentBuzz =
     phase.kind === "clue" && live && !phase.dailyDouble && !phase.resolvedBy
-      ? buzz.buzzes.find((b) => !phase.lockedTeams.includes(b.teamId))
+      ? buzz.buzzes.find((b) => !isOut(phase, b.teamId))
       : undefined;
   const accent = currentBuzz ? room.state.teams.find((t) => t.id === currentBuzz.teamId)?.color : undefined;
   const allUsed = board.categories.every((c) => c.clues.every((cl) => room.state.used.includes(cl.id)));
@@ -165,6 +169,12 @@ export default function HostPage() {
         >
           End game
         </button>
+        <button
+          className={`btn btn-sm ${room.state.powerSettings?.enabled.length ? "btn-primary" : "btn-ghost"}`}
+          onClick={() => setPowersOpen(true)}
+        >
+          Power-ups
+        </button>
         <Link href={`/b/${board.slug}?room=${encodeURIComponent(room.slug)}`} className="btn btn-ghost btn-sm">
           Edit board
         </Link>
@@ -212,6 +222,7 @@ export default function HostPage() {
         step={step}
         dispatch={dispatch}
         highlight={currentBuzz?.teamId}
+        queued={room.state.queued}
       />
 
       {phase.kind === "clue" && (
@@ -225,6 +236,7 @@ export default function HostPage() {
           dispatch={dispatch}
           onCountdown={live ? game.countdown : runLocalCountdown}
           onResetBuzz={game.resetBuzz}
+          onOpenPowerups={() => setPowersOpen(true)}
         />
       )}
       {phase.kind === "final" && (
@@ -249,6 +261,16 @@ export default function HostPage() {
         />
       )}
       {phase.kind === "ended" && <EndedView teams={room.state.teams} dispatch={dispatch} />}
+      {powersOpen && (
+        <PowerupsDialog
+          settings={room.state.powerSettings}
+          teams={room.state.teams}
+          players={live ? players : undefined}
+          dispatch={dispatch}
+          onClose={() => setPowersOpen(false)}
+        />
+      )}
+      <PowerNoticeToast notice={room.state.powerNotice} teams={room.state.teams} big />
       <CountdownOverlay count={live ? (buzz.status === "countdown" ? buzz.count : undefined) : localCount} go={goFlash} />
     </main>
   );
