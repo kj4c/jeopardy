@@ -101,6 +101,13 @@ function sanitizeBoard(input: Partial<Board>, existing: Pick<Board, "id" | "slug
     rowValues: input.rowValues.map((v) => Math.round(Number(v) || 0)),
     categories: input.categories,
     finalJeopardy: input.finalJeopardy,
+    quickfire: input.quickfire
+      ? {
+          points: Math.round(Number(input.quickfire.points) || 0),
+          penalty: !!input.quickfire.penalty,
+          questions: Array.isArray(input.quickfire.questions) ? input.quickfire.questions : [],
+        }
+      : undefined,
   };
 }
 

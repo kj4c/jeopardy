@@ -25,6 +25,21 @@ export type FinalJeopardy = {
   media?: Media;
 };
 
+export type QuickfireQuestion = {
+  id: string;
+  question: string;
+  answer: string;
+  media?: Media;
+};
+
+/** Rapid-fire round: every question is worth the same, first buzz answers, no steals. */
+export type Quickfire = {
+  points: number;
+  /** Subtract the points for a wrong answer. */
+  penalty?: boolean;
+  questions: QuickfireQuestion[];
+};
+
 export type Board = {
   id: string;
   /** Permanent URL name: /b/<slug>. */
@@ -34,6 +49,7 @@ export type Board = {
   categories: Category[];
   rowValues: number[];
   finalJeopardy?: FinalJeopardy;
+  quickfire?: Quickfire;
   updatedAt?: number;
 };
 
@@ -64,7 +80,18 @@ export type FinalPhase = {
   judged: Record<string, boolean>;
 };
 
-export type Phase = { kind: "board" } | CluePhase | FinalPhase;
+export type QuickfirePhase = {
+  kind: "quickfire";
+  /** Equal to the question count once every question has been played. */
+  index: number;
+  revealed: boolean;
+  /** Team that answered correctly, or "none" after a miss or skip. */
+  resolvedBy?: string;
+  /** Team that answered wrong; nobody can steal. */
+  missedBy?: string;
+};
+
+export type Phase = { kind: "board" } | CluePhase | FinalPhase | QuickfirePhase | { kind: "ended" };
 
 /**
  * "countdown": the team that picked the tile answers first; if they miss or pass, the host counts down for everyone else.
@@ -79,6 +106,8 @@ export type GameState = {
   buzzMode?: BuzzMode;
   /** Last team to answer correctly; they pick the next tile in countdown mode. */
   controlTeam?: string;
+  /** Next quickfire question, so leaving the round and coming back continues where it stopped. */
+  quickfireNext?: number;
 };
 
 export type RoomMode = "live" | "local";
@@ -151,7 +180,16 @@ export type PublicSnapshot = {
         eligible: string[];
         wagers: Record<string, { by?: string; amount?: number }>;
         answers: Record<string, { by?: string }>;
-      };
+      }
+    | {
+        kind: "quickfire";
+        index: number;
+        total: number;
+        points: number;
+        resolvedBy?: string;
+        missedBy?: string;
+      }
+    | { kind: "ended" };
 };
 
 export type GameAction =
@@ -178,4 +216,11 @@ export type GameAction =
   | { type: "final:reveal"; teamId: string }
   | { type: "final:judge"; teamId: string; correct: boolean }
   | { type: "final:exit" }
+  | { type: "quickfire:start" }
+  | { type: "quickfire:judge"; teamId: string; correct: boolean }
+  | { type: "quickfire:skip" }
+  | { type: "quickfire:reveal" }
+  | { type: "quickfire:next" }
+  | { type: "game:board" }
+  | { type: "game:end" }
   | { type: "game:reset" };

@@ -344,15 +344,18 @@ function TeamButton({ team, onClick }: { team: Team; onClick: () => void }) {
   );
 }
 
-function JudgeChip({
+export function JudgeChip({
   team,
   amount,
+  penalty = amount,
   locked,
   active,
   onJudge,
 }: {
   team: Team;
   amount: number;
+  /** Points lost for a wrong answer. */
+  penalty?: number;
   locked: boolean;
   active: boolean;
   onJudge: (correct: boolean) => void;
@@ -411,10 +414,10 @@ function JudgeChip({
           <button
             className="flex items-center justify-center gap-2 border-l border-line-strong py-4 text-bad transition hover:bg-bad/15 active:bg-bad/25"
             onClick={() => onJudge(false)}
-            aria-label={`${team.name} wrong, subtract ${amount}`}
+            aria-label={penalty ? `${team.name} wrong, subtract ${penalty}` : `${team.name} wrong`}
           >
             <span className="text-3xl leading-none">✕</span>
-            <span className="text-xl font-semibold">−{formatScore(amount)}</span>
+            <span className="text-xl font-semibold">{penalty ? `−${formatScore(penalty)}` : "Wrong"}</span>
           </button>
         </div>
       )}

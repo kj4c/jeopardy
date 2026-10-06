@@ -9,11 +9,11 @@ import { Modal } from "@/components/Modal";
 import { StartGameDialog } from "@/components/StartGameDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
-import { emptyCategory, emptyClue } from "@/lib/board";
-import type { Board, Clue, FinalJeopardy } from "@/lib/types";
+import { emptyCategory, emptyClue, newId } from "@/lib/board";
+import type { Board, Clue, FinalJeopardy, Quickfire, QuickfireQuestion } from "@/lib/types";
 
 type SaveStatus = "saved" | "saving" | "unsaved" | "error";
-type Selection = { kind: "clue"; categoryId: string; clueId: string } | { kind: "final" } | null;
+type Selection = { kind: "clue"; categoryId: string; clueId: string } | { kind: "final" } | { kind: "quickfire" } | null;
 
 export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void }) {
   const [board, setBoard] = useState<Board | null>(null);
@@ -136,6 +136,11 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
       finalJeopardy: { category: "", question: "", answer: "", ...b.finalJeopardy, ...patch },
     }));
 
+  const updateQuickfire = (fn: (qf: Quickfire) => Quickfire) =>
+    update((b) => ({ ...b, quickfire: fn(b.quickfire ?? { points: 200, questions: [] }) }));
+  const updateQuickfireQuestion = (id: string, patch: Partial<QuickfireQuestion>) =>
+    updateQuickfire((qf) => ({ ...qf, questions: qf.questions.map((q) => (q.id === id ? { ...q, ...patch } : q)) }));
+
   async function importJson(file: File) {
     try {
       const data = JSON.parse(await file.text()) as Partial<Board>;
@@ -146,6 +151,7 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
         categories: data.categories!,
         rowValues: data.rowValues!,
         finalJeopardy: data.finalJeopardy ?? b.finalJeopardy,
+        quickfire: data.quickfire ?? b.quickfire,
       }));
       setSelection(null);
     } catch (err) {
@@ -176,7 +182,7 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
   const selectedClue = selectedCategory && selectedRow !== undefined ? selectedCategory.clues[selectedRow] : undefined;
 
   return (
-    <main className="flex min-h-dvh flex-col">
+    <main className="flex h-dvh flex-col overflow-hidden">
       <GradientBackground waves={false} />
       <header className="sticky top-0 z-30 border-b border-line bg-ink/80 backdrop-blur-md">
         <div className="flex flex-wrap items-center gap-3 px-4 py-3 md:px-8">
@@ -224,6 +230,9 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
               Lock
             </button>
           )}
+          <button className="btn btn-ghost btn-sm" onClick={() => setSelection({ kind: "quickfire" })}>
+            Quickfire{board.quickfire?.questions.length ? ` (${board.quickfire.questions.length})` : ""}
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={() => setSelection({ kind: "final" })}>
             Final Jeopardy
           </button>
@@ -251,8 +260,8 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-auto p-4 md:p-8">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1 overflow-auto p-4 md:p-8">
           <div
             className="grid gap-2"
             style={{
@@ -323,15 +332,19 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
         </div>
 
         {selection && (
-          <aside className="panel animate-fade-up fixed inset-y-0 right-0 z-40 w-full max-w-md overflow-y-auto border-l border-line p-6 md:static md:z-auto">
+          <aside className="panel animate-fade-up fixed inset-y-0 right-0 z-40 w-full max-w-md overflow-y-auto overscroll-contain border-l border-line p-6 md:static md:z-auto md:h-full md:shrink-0">
             <div className="mb-6 flex items-start justify-between">
               <div>
                 <p className="label mb-1">
                   {selection.kind === "final"
                     ? "Final Jeopardy"
-                    : `${selectedCategory?.title || "Category"} · $${board.rowValues[selectedRow ?? 0]}`}
+                    : selection.kind === "quickfire"
+                      ? "Quickfire"
+                      : `${selectedCategory?.title || "Category"} · $${board.rowValues[selectedRow ?? 0]}`}
                 </p>
-                <h2 className="font-display text-3xl">{selection.kind === "final" ? "Final round" : "Edit clue"}</h2>
+                <h2 className="font-display text-3xl">
+                  {selection.kind === "final" ? "Final round" : selection.kind === "quickfire" ? "Rapid round" : "Edit clue"}
+                </h2>
               </div>
               <button className="btn btn-ghost btn-sm" onClick={() => setSelection(null)}>
                 ✕
@@ -381,6 +394,111 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
                   />
                 </label>
                 <ClueNav board={board} selection={selection} onSelect={setSelection} />
+              </div>
+            )}
+
+            {selection.kind === "quickfire" && (
+              <div className="space-y-5">
+                <p className="text-sm text-muted">
+                  Every question is worth the same. Buzzers open as soon as a question shows; the first team to buzz
+                  answers, and if they miss, nobody can steal.
+                </p>
+                <Field label="Points per question">
+                  <input
+                    type="number"
+                    className="field"
+                    value={board.quickfire?.points ?? 200}
+                    onChange={(e) => updateQuickfire((qf) => ({ ...qf, points: Math.round(Number(e.target.value) || 0) }))}
+                  />
+                </Field>
+                <label className="flex cursor-pointer items-center justify-between border border-line-strong p-3">
+                  <span>
+                    <span className="block font-medium">Wrong answers lose points</span>
+                    <span className="text-sm text-muted">Otherwise a miss just moves on.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 accent-[#ff7a6b]"
+                    checked={!!board.quickfire?.penalty}
+                    onChange={(e) => updateQuickfire((qf) => ({ ...qf, penalty: e.target.checked }))}
+                  />
+                </label>
+                <div className="space-y-4">
+                  {(board.quickfire?.questions ?? []).map((q, i, all) => (
+                    <div key={q.id} className="space-y-3 border border-line-strong p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="label">Question {i + 1}</span>
+                        <div className="flex gap-1">
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            disabled={i === 0}
+                            aria-label="Move up"
+                            onClick={() =>
+                              updateQuickfire((qf) => {
+                                const qs = [...qf.questions];
+                                [qs[i - 1], qs[i]] = [qs[i], qs[i - 1]];
+                                return { ...qf, questions: qs };
+                              })
+                            }
+                          >
+                            ↑
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            disabled={i === all.length - 1}
+                            aria-label="Move down"
+                            onClick={() =>
+                              updateQuickfire((qf) => {
+                                const qs = [...qf.questions];
+                                [qs[i + 1], qs[i]] = [qs[i], qs[i + 1]];
+                                return { ...qf, questions: qs };
+                              })
+                            }
+                          >
+                            ↓
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            aria-label="Remove question"
+                            onClick={() =>
+                              updateQuickfire((qf) => ({ ...qf, questions: qf.questions.filter((x) => x.id !== q.id) }))
+                            }
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                      <textarea
+                        className="field min-h-20"
+                        placeholder="Question"
+                        value={q.question}
+                        onChange={(e) => updateQuickfireQuestion(q.id, { question: e.target.value })}
+                      />
+                      <input
+                        className="field"
+                        placeholder="Correct response"
+                        value={q.answer}
+                        onChange={(e) => updateQuickfireQuestion(q.id, { answer: e.target.value })}
+                      />
+                      <MediaField boardId={board.id}
+                        label="Media (optional)"
+                        value={q.media}
+                        onChange={(media) => updateQuickfireQuestion(q.id, { media })}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <button
+                  className="btn btn-ghost w-full"
+                  onClick={() =>
+                    updateQuickfire((qf) => ({
+                      ...qf,
+                      questions: [...qf.questions, { id: newId("q_"), question: "", answer: "" }],
+                    }))
+                  }
+                >
+                  + Add question
+                </button>
               </div>
             )}
 

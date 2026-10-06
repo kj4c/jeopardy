@@ -103,6 +103,17 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
       ),
       answers: Object.fromEntries(Object.entries(p.answers).map(([k, v]) => [k, { by: v.by }])),
     };
+  } else if (state.phase.kind === "quickfire") {
+    phase = {
+      kind: "quickfire",
+      index: state.phase.index,
+      total: board.quickfire?.questions.length ?? 0,
+      points: board.quickfire?.points ?? 0,
+      resolvedBy: state.phase.resolvedBy,
+      missedBy: state.phase.missedBy,
+    };
+  } else if (state.phase.kind === "ended") {
+    phase = { kind: "ended" };
   }
   return {
     slug: room.slug,
@@ -146,7 +157,9 @@ function armBuzzers(lr: LiveRoom) {
 function refreshBuzz(lr: LiveRoom) {
   const { phase, buzzMode } = lr.room.state;
   const canBuzz = phase.kind === "clue" && !phase.resolvedBy && !phase.dailyDouble;
-  if (lr.room.mode === "live" && buzzMode === "instant" && canBuzz) armBuzzers(lr);
+  const quickfireOpen =
+    phase.kind === "quickfire" && !phase.resolvedBy && phase.index < (lr.board.quickfire?.questions.length ?? 0);
+  if (lr.room.mode === "live" && ((buzzMode === "instant" && canBuzz) || quickfireOpen)) armBuzzers(lr);
   else resetBuzz(lr);
 }
 
@@ -156,11 +169,12 @@ function applyAction(lr: LiveRoom, action: GameAction) {
   if (after === before) return false;
   const clueChanged =
     before.phase.kind !== after.phase.kind ||
-    (before.phase.kind === "clue" && after.phase.kind === "clue" && before.phase.clueId !== after.phase.clueId);
+    (before.phase.kind === "clue" && after.phase.kind === "clue" && before.phase.clueId !== after.phase.clueId) ||
+    (before.phase.kind === "quickfire" && after.phase.kind === "quickfire" && before.phase.index !== after.phase.index);
   lr.room.state = after;
   const reshown = action.type === "clue:question" && !action.hidden && after.buzzMode === "instant";
   if (clueChanged || reshown || action.type === "settings:buzz-mode") refreshBuzz(lr);
-  if (after.phase.kind === "clue" && after.phase.resolvedBy) {
+  if ((after.phase.kind === "clue" || after.phase.kind === "quickfire") && after.phase.resolvedBy) {
     lr.countdownToken++;
     lr.buzz = { ...lr.buzz, status: "idle", count: undefined };
   }
@@ -197,11 +211,18 @@ type BuzzResult = { ok: boolean; reason?: "early" | "penalty" | "locked" | "clos
 function handleBuzz(lr: LiveRoom, player: LivePlayer): BuzzResult {
   const now = Date.now();
   const phase = lr.room.state.phase;
-  if (phase.kind !== "clue" || phase.resolvedBy || phase.dailyDouble) return { ok: false, reason: "closed" };
+  const quickfire = phase.kind === "quickfire";
+  if (quickfire) {
+    if (phase.resolvedBy || phase.index >= (lr.board.quickfire?.questions.length ?? 0)) {
+      return { ok: false, reason: "closed" };
+    }
+  } else if (phase.kind !== "clue" || phase.resolvedBy || phase.dailyDouble) {
+    return { ok: false, reason: "closed" };
+  }
   if (!player.teamId || !lr.room.state.teams.some((t) => t.id === player.teamId)) {
     return { ok: false, reason: "noteam" };
   }
-  if (phase.lockedTeams.includes(player.teamId)) return { ok: false, reason: "locked" };
+  if (phase.kind === "clue" && phase.lockedTeams.includes(player.teamId)) return { ok: false, reason: "locked" };
   if (lr.buzz.status === "countdown") {
     player.penaltyUntil = lr.armAt + FALSE_START_PENALTY_MS;
     return { ok: false, reason: "early" };
@@ -214,7 +235,7 @@ function handleBuzz(lr: LiveRoom, player: LivePlayer): BuzzResult {
   const buzzes = [...lr.buzz.buzzes, { playerId: player.id, name: player.name, teamId: player.teamId, time }];
   buzzes.sort((a, b) => a.time - b.time);
   lr.buzz = { ...lr.buzz, buzzes };
-  if (lr.room.state.buzzMode === "instant" && !phase.questionHidden && !phase.revealed) {
+  if (phase.kind === "clue" && lr.room.state.buzzMode === "instant" && !phase.questionHidden && !phase.revealed) {
     lr.room.state = { ...lr.room.state, phase: { ...phase, questionHidden: true } };
     scheduleSave(lr);
   }

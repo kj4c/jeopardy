@@ -6,18 +6,21 @@ import { finalMaxWager } from "@/lib/gameReducer";
 import type { Board, FinalPhase, GameAction, RoomMode, Team } from "@/lib/types";
 import { GradientBackground } from "../GradientBackground";
 import { MediaRenderer } from "../MediaRenderer";
+import { Standings } from "./Standings";
 
 export function FinalView({
   board,
   phase,
   teams,
   mode,
+  canQuickfire,
   dispatch,
 }: {
   board: Board;
   phase: FinalPhase;
   teams: Team[];
   mode: RoomMode;
+  canQuickfire: boolean;
   dispatch: (a: GameAction) => void;
 }) {
   const fj = board.finalJeopardy;
@@ -112,7 +115,24 @@ export function FinalView({
           </>
         )}
 
-        {phase.step === "done" && <Standings teams={teams} />}
+        {phase.step === "done" && (
+          <>
+            <Standings teams={teams} title="Leading after Final Jeopardy" />
+            <div className="flex flex-wrap justify-center gap-3">
+              <button className="btn btn-primary px-8" onClick={() => dispatch({ type: "game:end" })}>
+                End game
+              </button>
+              {canQuickfire && (
+                <button className="btn btn-ghost px-8" onClick={() => dispatch({ type: "quickfire:start" })}>
+                  Quickfire round
+                </button>
+              )}
+              <button className="btn btn-ghost px-8" onClick={() => dispatch({ type: "final:exit" })}>
+                Back to board
+              </button>
+            </div>
+          </>
+        )}
         </div>
       </section>
     </div>
@@ -306,33 +326,6 @@ function Timer({ seconds }: { seconds: number }) {
         />
       </div>
       <p className="label mt-2">{left > 0 ? `${left}s` : "Time's up"}</p>
-    </div>
-  );
-}
-
-function Standings({ teams }: { teams: Team[] }) {
-  const sorted = [...teams].sort((a, b) => b.score - a.score);
-  const winner = sorted[0];
-  return (
-    <div className="flex w-full max-w-3xl flex-col items-center gap-8">
-      {winner && (
-        <div className="animate-pop">
-          <p className="label mb-3">Champion</p>
-          <h1 className="font-display text-[clamp(3.5rem,9vw,9rem)]" style={{ color: winner.color }}>
-            {winner.name}
-          </h1>
-        </div>
-      )}
-      <ol className="w-full divide-y divide-line border border-line">
-        {sorted.map((t, i) => (
-          <li key={t.id} className="flex items-center gap-4 bg-ink/60 px-6 py-4">
-            <span className="w-6 font-mono text-muted">{i + 1}</span>
-            <span className="h-3 w-3" style={{ background: t.color }} />
-            <span className="flex-1 text-left text-xl">{t.name}</span>
-            <span className="text-2xl font-bold tabular-nums">{formatScore(t.score)}</span>
-          </li>
-        ))}
-      </ol>
     </div>
   );
 }

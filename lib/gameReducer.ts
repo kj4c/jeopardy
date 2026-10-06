@@ -1,5 +1,5 @@
 import { findClue, maxRowValue, newId } from "./board";
-import type { Board, CluePhase, FinalPhase, GameAction, GameState, Team } from "./types";
+import type { Board, CluePhase, FinalPhase, GameAction, GameState, QuickfirePhase, Team } from "./types";
 
 export function ddMaxWager(board: Board, team: Team | undefined): number {
   return Math.max(team?.score ?? 0, maxRowValue(board));
@@ -174,13 +174,52 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
     case "final:exit":
       return { ...state, phase: { kind: "board" } };
 
+    case "quickfire:start": {
+      const total = board.quickfire?.questions.length ?? 0;
+      if (!total) return state;
+      const index = Math.min(state.quickfireNext ?? 0, total);
+      const next: QuickfirePhase = { kind: "quickfire", index, revealed: false };
+      return { ...state, phase: next };
+    }
+    case "quickfire:judge": {
+      const qf = board.quickfire;
+      if (phase.kind !== "quickfire" || phase.resolvedBy || !qf || phase.index >= qf.questions.length) return state;
+      const delta = action.correct ? qf.points : qf.penalty ? -qf.points : 0;
+      return {
+        ...state,
+        teams: delta ? addScore(state.teams, action.teamId, delta) : state.teams,
+        quickfireNext: phase.index + 1,
+        phase: {
+          ...phase,
+          revealed: true,
+          resolvedBy: action.correct ? action.teamId : "none",
+          missedBy: action.correct ? undefined : action.teamId,
+        },
+      };
+    }
+    case "quickfire:skip":
+      if (phase.kind !== "quickfire" || phase.resolvedBy) return state;
+      return { ...state, quickfireNext: phase.index + 1, phase: { ...phase, revealed: true, resolvedBy: "none" } };
+    case "quickfire:reveal":
+      if (phase.kind !== "quickfire") return state;
+      return { ...state, phase: { ...phase, revealed: !phase.revealed } };
+    case "quickfire:next": {
+      const total = board.quickfire?.questions.length ?? 0;
+      if (phase.kind !== "quickfire" || phase.index >= total) return state;
+      const index = phase.index + 1;
+      return { ...state, quickfireNext: Math.max(state.quickfireNext ?? 0, index), phase: { kind: "quickfire", index, revealed: false } };
+    }
+    case "game:board":
+      return phase.kind === "board" ? state : { ...state, phase: { kind: "board" } };
+    case "game:end":
+      return phase.kind === "ended" ? state : { ...state, phase: { kind: "ended" } };
+
     case "game:reset":
       return {
         teams: state.teams.map((t) => ({ ...t, score: 0 })),
         used: [],
         phase: { kind: "board" },
         buzzMode: state.buzzMode,
-        controlTeam: undefined,
       };
   }
 }

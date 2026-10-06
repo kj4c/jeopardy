@@ -7,9 +7,11 @@ import { GradientBackground } from "@/components/GradientBackground";
 import { BuzzModeToggle } from "@/components/host/BuzzModeToggle";
 import { ClueView } from "@/components/host/ClueView";
 import { CountdownOverlay } from "@/components/host/CountdownOverlay";
+import { EndedView } from "@/components/host/EndedView";
 import { FinalView } from "@/components/host/FinalView";
 import { JoinPanel } from "@/components/host/JoinPanel";
 import { PlayBoard } from "@/components/host/PlayBoard";
+import { QuickfireView } from "@/components/host/QuickfireView";
 import { Scoreboard } from "@/components/host/Scoreboard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UnlockBoard } from "@/components/UnlockBoard";
@@ -104,6 +106,9 @@ export default function HostPage() {
       : undefined;
   const accent = currentBuzz ? room.state.teams.find((t) => t.id === currentBuzz.teamId)?.color : undefined;
   const allUsed = board.categories.every((c) => c.clues.every((cl) => room.state.used.includes(cl.id)));
+  const quickfireTotal = board.quickfire?.questions.length ?? 0;
+  const quickfireLeft = quickfireTotal - Math.min(room.state.quickfireNext ?? 0, quickfireTotal);
+  const canFinal = !!board.finalJeopardy?.question;
 
   return (
     <main className="flex h-dvh flex-col overflow-hidden">
@@ -139,11 +144,26 @@ export default function HostPage() {
             {showJoin ? "Hide QR" : "Show QR"}
           </button>
         )}
+        {quickfireTotal > 0 && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => dispatch({ type: "quickfire:start" })}
+            title={quickfireLeft ? `${quickfireLeft} of ${quickfireTotal} questions left` : "All quickfire questions played"}
+          >
+            Quickfire{quickfireLeft < quickfireTotal ? ` (${quickfireLeft} left)` : ""}
+          </button>
+        )}
         <button
           className={`btn btn-sm ${allUsed ? "btn-primary" : "btn-ghost"}`}
           onClick={() => dispatch({ type: "final:start" })}
         >
           Final Jeopardy
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => confirm("End the game and show final standings?") && dispatch({ type: "game:end" })}
+        >
+          End game
         </button>
         <Link href={`/b/${board.slug}?room=${encodeURIComponent(room.slug)}`} className="btn btn-ghost btn-sm">
           Edit board
@@ -208,8 +228,27 @@ export default function HostPage() {
         />
       )}
       {phase.kind === "final" && (
-        <FinalView board={board} phase={phase} teams={room.state.teams} mode={room.mode} dispatch={dispatch} />
+        <FinalView
+          board={board}
+          phase={phase}
+          teams={room.state.teams}
+          mode={room.mode}
+          canQuickfire={quickfireLeft > 0}
+          dispatch={dispatch}
+        />
       )}
+      {phase.kind === "quickfire" && (
+        <QuickfireView
+          board={board}
+          phase={phase}
+          teams={room.state.teams}
+          mode={room.mode}
+          buzz={buzz}
+          canFinal={canFinal}
+          dispatch={dispatch}
+        />
+      )}
+      {phase.kind === "ended" && <EndedView teams={room.state.teams} dispatch={dispatch} />}
       <CountdownOverlay count={live ? (buzz.status === "countdown" ? buzz.count : undefined) : localCount} go={goFlash} />
     </main>
   );

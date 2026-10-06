@@ -335,6 +335,52 @@ function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam:
     return <Buzzer snap={snap} myTeam={myTeam} playerId={playerId} locked={phase.lockedTeams.includes(myTeam.id)} />;
   }
 
+  if (phase.kind === "ended") {
+    const sorted = [...snap.teams].sort((a, b) => b.score - a.score);
+    const winner = sorted[0];
+    const tied = sorted.length > 1 && sorted[1].score === winner?.score;
+    return (
+      <Waiting
+        title={!winner ? "Game over." : tied ? "It's a tie!" : winner.id === myTeam.id ? "You won!" : `${winner.name} wins!`}
+        body={`Game over. Your team finished with ${formatScore(myTeam.score)}.`}
+      />
+    );
+  }
+
+  if (phase.kind === "quickfire") {
+    if (phase.index >= phase.total) return <Waiting title="Quickfire done." body="Eyes on the big screen." />;
+    const label = `Quickfire · ${phase.index + 1} of ${phase.total} · ${formatScore(phase.points)}`;
+    if (phase.resolvedBy) {
+      const winner = snap.teams.find((t) => t.id === phase.resolvedBy);
+      const missed = snap.teams.find((t) => t.id === phase.missedBy);
+      return (
+        <div>
+          <p className="label mb-4">{label}</p>
+          <Waiting
+            title={
+              winner
+                ? winner.id === myTeam.id
+                  ? "Nailed it."
+                  : `${winner.name} got it.`
+                : missed
+                  ? missed.id === myTeam.id
+                    ? "Not quite."
+                    : `${missed.name} missed.`
+                  : "No one got it."
+            }
+            body={missed && !winner ? "No steals in quickfire. Next question coming up." : "Next question coming up."}
+          />
+        </div>
+      );
+    }
+    return (
+      <div className="flex w-full flex-col items-center">
+        <p className="label mb-6">{label}</p>
+        <Buzzer key={phase.index} snap={snap} myTeam={myTeam} playerId={playerId} locked={false} />
+      </div>
+    );
+  }
+
   const eligible = phase.eligible.includes(myTeam.id);
   if (phase.step === "wager") {
     if (!eligible) return <Waiting title="Final Jeopardy" body={`Category: ${phase.category}. Your team sits this one out.`} />;
