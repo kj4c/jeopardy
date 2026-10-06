@@ -64,8 +64,6 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   }
 }
 
-const MIN_PASSWORD_LENGTH = 4;
-
 /** Throws 401 unless this browser has unlocked the board (boards without a password are open). */
 function requireBoard(req: IncomingMessage, boardId: string | undefined): Board {
   const board = boardId ? db.getBoard(boardId) : null;
@@ -147,13 +145,19 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
     if (!board) throw new HttpError(404, "Board not found");
     const hash = db.getPasswordHash(board.id);
     if (!sub && method === "GET") {
-      return send(res, 200, {
-        id: board.id,
-        slug: board.slug,
-        name: board.name,
-        hasPassword: !!hash,
-        authed: hasBoardAccess(req.headers.cookie, board.id, hash),
-      });
+      return send(
+        res,
+        200,
+        {
+          id: board.id,
+          slug: board.slug,
+          name: board.name,
+          hasPassword: !!hash,
+          authed: hasBoardAccess(req.headers.cookie, board.id, hash),
+        },
+        // Open boards have nothing to unlock, so remember them on this device as soon as they're visited.
+        hash ? {} : { "Set-Cookie": boardSessionCookie(board.id, null) },
+      );
     }
     if (sub === "login" && method === "POST") {
       const key = clientKey(req, board.slug);
@@ -164,7 +168,7 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
         throw new HttpError(401, "Wrong password");
       }
       clearFailures(key);
-      return send(res, 200, { id: board.id }, { "Set-Cookie": boardSessionCookie(board.id) });
+      return send(res, 200, { id: board.id }, { "Set-Cookie": boardSessionCookie(board.id, hash) });
     }
     if (sub === "logout" && method === "POST") {
       return send(res, 200, { ok: true }, { "Set-Cookie": clearBoardCookie(board.id) });
@@ -204,7 +208,7 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
   if (resource === "boards") {
     if (!id) {
       if (method === "GET") {
-        const boards = db.listBoardsByIds(unlockedBoardIds(req.headers.cookie));
+        const boards = db.listBoardsByIds(unlockedBoardIds(req.headers.cookie, db.getPasswordHash));
         const rooms = db.listRooms();
         return send(
           res,
@@ -218,29 +222,26 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
         const password = String(body.password ?? "");
         const slug = slugify(name);
         if (!slug) throw new HttpError(400, "Give your board a name");
-        if (password.length < MIN_PASSWORD_LENGTH) {
-          throw new HttpError(400, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
-        }
         if (db.boardSlugTaken(slug)) throw new HttpError(409, "That board name is taken. Try another.");
-        const board = db.insertBoard({ ...defaultBoard(name), id: newId("b_"), slug }, hashPassword(password));
-        return send(res, 201, board, { "Set-Cookie": boardSessionCookie(board.id) });
+        const hash = password ? hashPassword(password) : null;
+        const board = db.insertBoard({ ...defaultBoard(name), id: newId("b_"), slug }, hash);
+        return send(res, 201, board, { "Set-Cookie": boardSessionCookie(board.id, hash) });
       }
     } else {
       const board = requireBoard(req, id);
       if (sub === "duplicate" && method === "POST") {
+        const hash = db.getPasswordHash(board.id);
         const copy = db.insertBoard(
           { ...board, id: newId("b_"), slug: uniqueBoardSlug(`${board.slug}-copy`), name: `${board.name} (copy)` },
-          db.getPasswordHash(board.id),
+          hash,
         );
-        return send(res, 201, copy, { "Set-Cookie": boardSessionCookie(copy.id) });
+        return send(res, 201, copy, { "Set-Cookie": boardSessionCookie(copy.id, hash) });
       }
       if (sub === "password" && method === "POST") {
-        const { password } = await readJson<{ password?: string }>(req);
-        if (String(password ?? "").length < MIN_PASSWORD_LENGTH) {
-          throw new HttpError(400, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
-        }
-        db.setPasswordHash(board.id, hashPassword(String(password)));
-        return send(res, 200, { ok: true }, { "Set-Cookie": boardSessionCookie(board.id) });
+        const password = String((await readJson<{ password?: string }>(req)).password ?? "");
+        const hash = password ? hashPassword(password) : null;
+        db.setPasswordHash(board.id, hash);
+        return send(res, 200, { ok: true }, { "Set-Cookie": boardSessionCookie(board.id, hash) });
       }
       if (!sub && method === "GET") return send(res, 200, board);
       if (!sub && method === "PUT") {

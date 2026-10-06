@@ -122,7 +122,7 @@ export function getPasswordHash(id: string): string | null {
   return row?.password_hash ?? null;
 }
 
-export function setPasswordHash(id: string, hash: string) {
+export function setPasswordHash(id: string, hash: string | null) {
   db.prepare("UPDATE boards SET password_hash = ? WHERE id = ?").run(hash, id);
 }
 

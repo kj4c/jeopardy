@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GradientBackground } from "@/components/GradientBackground";
 import { MediaField } from "@/components/MediaField";
+import { Modal } from "@/components/Modal";
 import { StartGameDialog } from "@/components/StartGameDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
@@ -14,9 +14,10 @@ import type { Board, Clue, FinalJeopardy } from "@/lib/types";
 type SaveStatus = "saved" | "saving" | "unsaved" | "error";
 type Selection = { kind: "clue"; categoryId: string; clueId: string } | { kind: "final" } | null;
 
-export default function EditorPage() {
-  const { id } = useParams<{ id: string }>();
+export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void }) {
   const [board, setBoard] = useState<Board | null>(null);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<SaveStatus>("saved");
   const [selection, setSelection] = useState<Selection>(null);
   const [starting, setStarting] = useState(false);
@@ -30,8 +31,8 @@ export default function EditorPage() {
         latest.current = b;
         setBoard(b);
       })
-      .catch((err) => setLoadError((err as Error).message));
-  }, [id]);
+      .catch((err) => (err.status === 401 ? onLocked() : setLoadError((err as Error).message)));
+  }, [id, onLocked]);
 
   const flush = useCallback(async () => {
     clearTimeout(saveTimer.current);
@@ -128,9 +129,32 @@ export default function EditorPage() {
       finalJeopardy: { category: "", question: "", answer: "", ...b.finalJeopardy, ...patch },
     }));
 
+  async function importJson(file: File) {
+    try {
+      const data = JSON.parse(await file.text()) as Partial<Board>;
+      if (!Array.isArray(data.categories) || !Array.isArray(data.rowValues)) throw new Error("Not a board file");
+      if (!confirm("Replace everything on this board with the imported file?")) return;
+      update((b) => ({
+        ...b,
+        categories: data.categories!,
+        rowValues: data.rowValues!,
+        finalJeopardy: data.finalJeopardy ?? b.finalJeopardy,
+      }));
+      setSelection(null);
+    } catch (err) {
+      alert(`Could not import: ${(err as Error).message}`);
+    }
+  }
+
+  async function lock() {
+    await flush();
+    await api(`/api/b/${board!.slug}/logout`, { method: "POST" });
+    onLocked();
+  }
+
   function exportJson() {
     if (!board) return;
-    const { id: _id, updatedAt: _u, ...data } = board;
+    const { id: _id, slug: _s, hasPassword: _p, updatedAt: _u, ...data } = board;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -152,19 +176,47 @@ export default function EditorPage() {
           <Link href="/boards" className="btn btn-ghost btn-sm">
             ← Boards
           </Link>
-          <input
-            className="font-display min-w-0 flex-1 bg-transparent text-3xl outline-none placeholder:text-muted"
-            value={board.name}
-            onChange={(e) => update((b) => ({ ...b, name: e.target.value }))}
-            placeholder="Board name"
-          />
+          <div className="min-w-0 flex-1">
+            <input
+              className="font-display w-full bg-transparent text-3xl outline-none placeholder:text-muted"
+              value={board.name}
+              onChange={(e) => update((b) => ({ ...b, name: e.target.value }))}
+              placeholder="Board name"
+            />
+            <p className="label mt-0.5 truncate">
+              Edit from any device at /b/{board.slug}
+              {!board.hasPassword && " · no password, anyone with the link can edit"}
+            </p>
+          </div>
           <span className={`label ${status === "error" ? "!text-bad" : ""}`}>
             {status === "saved" ? "Saved" : status === "saving" ? "Saving…" : status === "error" ? "Save failed" : "Editing"}
           </span>
           <ThemeToggle />
+          <button className="btn btn-ghost btn-sm" onClick={() => importRef.current?.click()}>
+            Import
+          </button>
+          <input
+            ref={importRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) importJson(f);
+              e.target.value = "";
+            }}
+          />
           <button className="btn btn-ghost btn-sm" onClick={exportJson}>
             Export
           </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setPasswordOpen(true)}>
+            {board.hasPassword ? "Password" : "Set password"}
+          </button>
+          {board.hasPassword && (
+            <button className="btn btn-ghost btn-sm" onClick={lock} title="Sign out of this board on this device">
+              Lock
+            </button>
+          )}
           <button className="btn btn-ghost btn-sm" onClick={() => setSelection({ kind: "final" })}>
             Final Jeopardy
           </button>
@@ -277,7 +329,7 @@ export default function EditorPage() {
                     onChange={(e) => updateClue(selectedCategory.id, selectedClue.id, { question: e.target.value })}
                   />
                 </Field>
-                <MediaField
+                <MediaField boardId={board.id}
                   label="Question media"
                   value={selectedClue.media}
                   onChange={(media) => updateClue(selectedCategory.id, selectedClue.id, { media })}
@@ -290,7 +342,7 @@ export default function EditorPage() {
                     onChange={(e) => updateClue(selectedCategory.id, selectedClue.id, { answer: e.target.value })}
                   />
                 </Field>
-                <MediaField
+                <MediaField boardId={board.id}
                   label="Answer media (optional)"
                   value={selectedClue.answerMedia}
                   onChange={(answerMedia) => updateClue(selectedCategory.id, selectedClue.id, { answerMedia })}
@@ -329,7 +381,7 @@ export default function EditorPage() {
                     onChange={(e) => updateFinal({ question: e.target.value })}
                   />
                 </Field>
-                <MediaField
+                <MediaField boardId={board.id}
                   label="Question media"
                   value={board.finalJeopardy?.media}
                   onChange={(media) => updateFinal({ media })}
@@ -348,7 +400,94 @@ export default function EditorPage() {
       </div>
 
       {starting && <StartGameDialog boardId={board.id} boardName={board.name} onClose={() => setStarting(false)} />}
+      {passwordOpen && (
+        <PasswordDialog
+          boardId={board.id}
+          hasPassword={!!board.hasPassword}
+          onClose={() => setPasswordOpen(false)}
+          onSaved={(hasPassword) => {
+            setPasswordOpen(false);
+            setBoard((b) => (b ? { ...b, hasPassword } : b));
+          }}
+        />
+      )}
     </main>
+  );
+}
+
+function PasswordDialog({
+  boardId,
+  hasPassword,
+  onClose,
+  onSaved,
+}: {
+  boardId: string;
+  hasPassword: boolean;
+  onClose: () => void;
+  onSaved: (hasPassword: boolean) => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function save(next: string) {
+    setBusy(true);
+    try {
+      await api(`/api/boards/${boardId}/password`, { method: "POST", json: { password: next } });
+      onSaved(next.length > 0);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Board password" subtitle="Used to edit and host from any device" onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (password !== confirmPw) return setError("Passwords don't match");
+          save(password);
+        }}
+      >
+        <input
+          type="password"
+          className="field"
+          placeholder="New password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoFocus
+        />
+        <input
+          type="password"
+          className="field"
+          placeholder="Confirm password"
+          value={confirmPw}
+          onChange={(e) => setConfirmPw(e.target.value)}
+        />
+        {error && <p className="text-sm text-bad">{error}</p>}
+        <div className="flex justify-end gap-2">
+          {hasPassword && (
+            <button
+              type="button"
+              className="btn btn-ghost mr-auto"
+              disabled={busy}
+              onClick={() => confirm("Remove the password? Anyone with the link will be able to edit.") && save("")}
+            >
+              Remove password
+            </button>
+          )}
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" disabled={busy || !password}>
+            Save password
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

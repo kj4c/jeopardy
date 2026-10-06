@@ -6,7 +6,7 @@ import { gameReducer } from "./gameReducer";
 import { emitAck, getSocket } from "./socket";
 import type { Board, BuzzState, GameAction, HostSnapshot, Player, Room, RoomMode } from "./types";
 
-type Status = "loading" | "ready" | "not_found" | "error";
+type Status = "loading" | "ready" | "not_found" | "locked" | "error";
 
 const IDLE_BUZZ: BuzzState = { status: "idle", buzzes: [] };
 
@@ -22,6 +22,8 @@ export function useHostGame(slug: string) {
   const boardRef = useRef<Board | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [reloadKey, setReloadKey] = useState(0);
+  const [lockedBoard, setLockedBoard] = useState<{ slug: string; name: string } | null>(null);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   const applySnapshot = useCallback((snap: HostSnapshot) => {
     roomRef.current = snap.room;
@@ -44,7 +46,13 @@ export function useHostGame(slug: string) {
         setBoard(board);
         setStatus("ready");
       })
-      .catch((err) => !cancelled && setStatus(err.status === 404 ? "not_found" : "error"));
+      .catch((err) => {
+        if (cancelled) return;
+        if (err.status === 401) {
+          setLockedBoard(err.data.board);
+          setStatus("locked");
+        } else setStatus(err.status === 404 ? "not_found" : "error");
+      });
     return () => {
       cancelled = true;
     };
@@ -131,6 +139,8 @@ export function useHostGame(slug: string) {
 
   return {
     status,
+    lockedBoard,
+    reload,
     room,
     board,
     players,

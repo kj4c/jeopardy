@@ -9,10 +9,12 @@ import { MediaRenderer } from "./MediaRenderer";
 type Tab = "none" | "image" | "youtube";
 
 export function MediaField({
+  boardId,
   label,
   value,
   onChange,
 }: {
+  boardId: string;
   label: string;
   value?: Media;
   onChange: (media: Media | undefined) => void;
@@ -28,7 +30,7 @@ export function MediaField({
     if (!file) return;
     setUploading(true);
     try {
-      onChange({ type: "image", src: await uploadImage(file) });
+      onChange({ type: "image", src: await uploadImage(file, boardId) });
     } catch (err) {
       alert((err as Error).message);
     } finally {

@@ -1,5 +1,8 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
+if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+  throw new Error("Set SESSION_SECRET to a long random string before running in production.");
+}
 const SECRET = process.env.SESSION_SECRET || "dev-secret-change-me";
 const COOKIE_PREFIX = "jb_";
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
@@ -37,9 +40,10 @@ export function parseCookies(header: string | undefined): Record<string, string>
   return out;
 }
 
-export function boardSessionCookie(boardId: string): string {
+/** Signed against the current password hash, so changing or adding a password signs out every other device. */
+export function boardSessionCookie(boardId: string, passwordHash: string | null): string {
   const expires = Date.now() + MAX_AGE_SECONDS * 1000;
-  const value = `${expires}.${sign(`${boardId}.${expires}`)}`;
+  const value = `${expires}.${sign(`${boardId}.${expires}.${passwordHash ?? ""}`)}`;
   return `${COOKIE_PREFIX}${boardId}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE_SECONDS}`;
 }
 
@@ -47,25 +51,28 @@ export function clearBoardCookie(boardId: string): string {
   return `${COOKIE_PREFIX}${boardId}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
-function validCookie(boardId: string, value: string | undefined) {
+function validCookie(boardId: string, value: string | undefined, passwordHash: string | null) {
   if (!value) return false;
   const [expires, sig] = value.split(".");
   if (!expires || !sig || Number(expires) < Date.now()) return false;
-  return safeEqual(sig, sign(`${boardId}.${expires}`));
+  return safeEqual(sig, sign(`${boardId}.${expires}.${passwordHash ?? ""}`));
 }
 
 /** Board ids this browser has unlocked (cookie signature still valid). */
-export function unlockedBoardIds(cookieHeader: string | undefined): string[] {
+export function unlockedBoardIds(
+  cookieHeader: string | undefined,
+  passwordHashOf: (boardId: string) => string | null,
+): string[] {
   return Object.entries(parseCookies(cookieHeader))
     .filter(([name]) => name.startsWith(COOKIE_PREFIX))
     .map(([name, value]) => [name.slice(COOKIE_PREFIX.length), value] as const)
-    .filter(([id, value]) => validCookie(id, value))
+    .filter(([id, value]) => validCookie(id, value, passwordHashOf(id)))
     .map(([id]) => id);
 }
 
 export function hasBoardAccess(cookieHeader: string | undefined, boardId: string, passwordHash: string | null) {
   if (!passwordHash) return true;
-  return validCookie(boardId, parseCookies(cookieHeader)[`${COOKIE_PREFIX}${boardId}`]);
+  return validCookie(boardId, parseCookies(cookieHeader)[`${COOKIE_PREFIX}${boardId}`], passwordHash);
 }
 
 const attempts = new Map<string, { count: number; resetAt: number }>();

@@ -25,10 +25,13 @@ type LiveRoom = {
   armedAt: number;
   countdownToken: number;
   saveTimer?: NodeJS.Timeout;
+  emptySince?: number;
 };
 
 const MAX_LATENCY_CREDIT_MS = 150;
 const FALSE_START_PENALTY_MS = 500;
+const IDLE_UNLOAD_MS = 30 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 const live = new Map<string, LiveRoom>();
 let io: Server;
@@ -222,12 +225,35 @@ export function dropRoom(slug: string) {
   live.delete(slug);
 }
 
+/** Frees rooms nobody has been connected to for a while. Scores and tiles are already in the database. */
+function sweepIdleRooms() {
+  const now = Date.now();
+  for (const [slug, lr] of live) {
+    const connected =
+      (io.sockets.adapter.rooms.get(`play:${slug}`)?.size ?? 0) +
+      (io.sockets.adapter.rooms.get(`host:${slug}`)?.size ?? 0);
+    if (connected > 0) {
+      lr.emptySince = undefined;
+    } else if (lr.emptySince === undefined) {
+      lr.emptySince = now;
+    } else if (now - lr.emptySince >= IDLE_UNLOAD_MS) {
+      if (lr.saveTimer) {
+        clearTimeout(lr.saveTimer);
+        updateRoom(slug, { state: lr.room.state });
+      }
+      lr.countdownToken++;
+      live.delete(slug);
+    }
+  }
+}
+
 export function getLiveState(slug: string): GameState | null {
   return live.get(slug)?.room.state ?? null;
 }
 
 export function attachRooms(server: Server) {
   io = server;
+  setInterval(sweepIdleRooms, SWEEP_INTERVAL_MS).unref();
 
   io.on("connection", (socket: Socket) => {
     let slug: string | null = null;

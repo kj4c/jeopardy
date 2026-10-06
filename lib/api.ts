@@ -4,6 +4,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public data: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -17,18 +18,15 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
     body: json !== undefined ? JSON.stringify(json) : rest.body,
     credentials: "same-origin",
   });
-  if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/api/login")) {
-    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
-  }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? res.statusText);
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw new ApiError(res.status, (data.error as string) ?? res.statusText, data);
   return data as T;
 }
 
 const MAX_DIMENSION = 1800;
 
 /** Downscales large photos in the browser before upload. GIFs are sent as-is to keep animation. */
-export async function uploadImage(file: File): Promise<string> {
+export async function uploadImage(file: File, boardId: string): Promise<string> {
   if (!file.type.startsWith("image/")) throw new Error("Please choose an image file");
   let blob: Blob = file;
   if (file.type !== "image/gif") {
@@ -45,7 +43,7 @@ export async function uploadImage(file: File): Promise<string> {
     }
     bitmap.close();
   }
-  const { url } = await api<{ url: string }>("/api/upload", {
+  const { url } = await api<{ url: string }>(`/api/upload?board=${encodeURIComponent(boardId)}`, {
     method: "POST",
     headers: { "Content-Type": blob.type },
     body: blob,

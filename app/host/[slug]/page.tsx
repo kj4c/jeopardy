@@ -11,6 +11,7 @@ import { JoinPanel } from "@/components/host/JoinPanel";
 import { PlayBoard } from "@/components/host/PlayBoard";
 import { Scoreboard } from "@/components/host/Scoreboard";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { UnlockBoard } from "@/components/UnlockBoard";
 import { sounds } from "@/lib/sound";
 import type { GameAction } from "@/lib/types";
 import { useHostGame } from "@/lib/useHostGame";
@@ -67,6 +68,16 @@ export default function HostPage() {
   }, [ddClueId]);
 
   if (game.status === "loading") return <main className="min-h-dvh"><GradientBackground /></main>;
+  if (game.status === "locked" && game.lockedBoard) {
+    return (
+      <UnlockBoard
+        slug={game.lockedBoard.slug}
+        name={game.lockedBoard.name}
+        reason="Enter the board password to host"
+        onUnlocked={game.reload}
+      />
+    );
+  }
   if (game.status !== "ready" || !room || !board || !phase) {
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
@@ -132,7 +143,7 @@ export default function HostPage() {
         >
           Final Jeopardy
         </button>
-        <Link href={`/editor/${board.id}`} className="btn btn-ghost btn-sm">
+        <Link href={`/b/${board.slug}`} className="btn btn-ghost btn-sm">
           Edit board
         </Link>
         <button
