@@ -403,6 +403,12 @@ function Buzzer({
     }
   }, [pending, myIndex, locked]);
 
+  const phase = snap.phase;
+  const pickedBy =
+    phase.kind === "clue" && snap.buzzMode === "countdown" && !phase.lockedTeams.includes(phase.pickedBy ?? "")
+      ? phase.pickedBy
+      : undefined;
+  const pickedTeam = pickedBy ? snap.teams.find((t) => t.id === pickedBy) : undefined;
   let title: string;
   let sub = "";
   if (locked) {
@@ -421,9 +427,20 @@ function Buzzer({
     sub = feedback === "early" ? "Too early! Short penalty." : "Wait for it…";
   } else if (armed) {
     title = "BUZZ";
-    sub = feedback === "penalty" ? "Penalty… hold on" : "";
+    sub =
+      feedback === "penalty" ? "Penalty… hold on" : snap.buzzMode === "instant" ? "Buzzing hides the question!" : "";
+  } else if (pickedTeam) {
+    title = pickedTeam.id === myTeam.id ? "Your pick" : `${pickedTeam.name} first`;
+    sub =
+      pickedTeam.id === myTeam.id
+        ? "Your team answers first. Say it out loud!"
+        : "If they miss or pass, get ready for the countdown.";
   } else {
-    title = buzz.buzzes.length ? "Buzzers closed" : "Wait for the countdown";
+    title = buzz.buzzes.length
+      ? "Buzzers closed"
+      : snap.buzzMode === "instant"
+        ? "Wait for the question"
+        : "Wait for the countdown";
   }
 
   const live = armed && !locked && myIndex === -1;

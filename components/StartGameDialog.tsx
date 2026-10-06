@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { slugify, TEAM_COLORS } from "@/lib/board";
-import type { Room, RoomMode } from "@/lib/types";
+import type { Room, RoomMode, RoomSummary } from "@/lib/types";
 import { Modal } from "./Modal";
 
 export function StartGameDialog({
@@ -26,7 +27,12 @@ export function StartGameDialog({
   ]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const slug = slugify(name);
+
+  useEffect(() => {
+    api<RoomSummary[]>(`/api/boards/${boardId}/rooms`).then(setRooms).catch(() => {});
+  }, [boardId]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -43,6 +49,27 @@ export function StartGameDialog({
 
   return (
     <Modal onClose={onClose} title="Start a game" subtitle={boardName}>
+      {rooms.length > 0 && (
+        <div className="mb-6 border-b border-line pb-6">
+          <p className="label mb-2">Resume a game · uses your latest edits</p>
+          <ul className="divide-y divide-line border border-line">
+            {rooms.map((r) => (
+              <li key={r.slug} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{r.name}</p>
+                  <p className="font-mono text-xs text-muted">
+                    /play/{r.slug} · {r.mode === "live" ? "live" : "in person"}
+                  </p>
+                </div>
+                <Link href={`/host/${r.slug}`} className="btn btn-primary btn-sm shrink-0">
+                  Resume
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <p className="label mt-6">Or start a new game</p>
+        </div>
+      )}
       <form onSubmit={create} className="space-y-6">
         <div>
           <label className="label mb-2 block">Room name</label>
@@ -51,7 +78,7 @@ export function StartGameDialog({
             placeholder="e.g. Friday trivia"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            autoFocus
+            autoFocus={rooms.length === 0}
           />
           <p className="mt-2 font-mono text-xs text-muted">
             Players join at{" "}

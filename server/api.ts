@@ -4,7 +4,7 @@ import { writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
-import { defaultBoard, initialGameState, newId, slugify, TEAM_COLORS } from "../lib/board";
+import { defaultBoard, findClue, initialGameState, newId, slugify, TEAM_COLORS } from "../lib/board";
 import type { Board, GameState, RoomMode } from "../lib/types";
 import {
   allowAttempt,
@@ -19,6 +19,17 @@ import {
 } from "./auth";
 import * as db from "./db";
 import { dropRoom, getLiveState, publicSnapshot, syncBoard, syncRoom } from "./rooms";
+
+/** Sends games back to the board if the clue they had open was deleted in the editor. */
+function closeDeletedClues(board: Board) {
+  for (const summary of db.listRooms(board.id)) {
+    const state = getLiveState(summary.slug) ?? db.getRoom(summary.slug)?.state;
+    if (state?.phase.kind !== "clue" || findClue(board, state.phase.clueId)) continue;
+    const next: GameState = { ...state, phase: { kind: "board" } };
+    db.updateRoom(summary.slug, { state: next });
+    syncRoom(summary.slug, { state: next });
+  }
+}
 
 const MAX_JSON_BYTES = 5 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
@@ -243,10 +254,14 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
         db.setPasswordHash(board.id, hash);
         return send(res, 200, { ok: true }, { "Set-Cookie": boardSessionCookie(board.id, hash) });
       }
+      if (sub === "rooms" && method === "GET") return send(res, 200, db.listRooms(board.id));
       if (!sub && method === "GET") return send(res, 200, board);
       if (!sub && method === "PUT") {
         const saved = db.updateBoard(sanitizeBoard(await readJson<Partial<Board>>(req), board));
-        if (saved) syncBoard(saved);
+        if (saved) {
+          syncBoard(saved);
+          closeDeletedClues(saved);
+        }
         return send(res, 200, saved);
       }
       if (!sub && method === "DELETE") {

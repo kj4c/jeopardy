@@ -44,7 +44,11 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
         ),
       };
     case "team:remove":
-      return { ...state, teams: state.teams.filter((t) => t.id !== action.teamId) };
+      return {
+        ...state,
+        teams: state.teams.filter((t) => t.id !== action.teamId),
+        controlTeam: state.controlTeam === action.teamId ? undefined : state.controlTeam,
+      };
     case "score:adjust":
       return { ...state, teams: addScore(state.teams, action.teamId, Math.round(action.delta)) };
 
@@ -53,6 +57,9 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       if (!found) return state;
       const next: CluePhase = { kind: "clue", clueId: action.clueId, revealed: false, lockedTeams: [] };
       if (found.clue.dailyDouble) next.dailyDouble = {};
+      else if (state.buzzMode !== "instant" && state.teams.some((t) => t.id === state.controlTeam)) {
+        next.pickedBy = state.controlTeam;
+      }
       return { ...state, phase: next };
     }
     case "clue:reveal":
@@ -61,6 +68,20 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
     case "clue:hide":
       if (phase.kind !== "clue" || !phase.revealed) return state;
       return { ...state, phase: { ...phase, revealed: false } };
+    case "clue:question":
+      if (phase.kind !== "clue" || !!phase.questionHidden === action.hidden) return state;
+      return { ...state, phase: { ...phase, questionHidden: action.hidden } };
+    case "settings:buzz-mode":
+      if ((state.buzzMode ?? "countdown") === action.mode) return state;
+      return { ...state, buzzMode: action.mode === "instant" ? "instant" : "countdown" };
+    case "clue:pick":
+      if (phase.kind !== "clue" || phase.resolvedBy || phase.dailyDouble) return state;
+      if (action.teamId && !state.teams.some((t) => t.id === action.teamId)) return state;
+      return { ...state, phase: { ...phase, pickedBy: action.teamId ?? undefined } };
+    case "clue:pass":
+      if (phase.kind !== "clue" || phase.resolvedBy || phase.dailyDouble) return state;
+      if (phase.lockedTeams.includes(action.teamId)) return state;
+      return { ...state, phase: { ...phase, lockedTeams: [...phase.lockedTeams, action.teamId] } };
     case "clue:close": {
       if (phase.kind !== "clue") return state;
       const used =
@@ -84,6 +105,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
           ...state,
           teams,
           used,
+          controlTeam: action.correct ? action.teamId : state.controlTeam,
           phase: { ...phase, revealed: true, resolvedBy: action.correct ? action.teamId : "none" },
         };
       }
@@ -153,6 +175,12 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       return { ...state, phase: { kind: "board" } };
 
     case "game:reset":
-      return { teams: state.teams.map((t) => ({ ...t, score: 0 })), used: [], phase: { kind: "board" } };
+      return {
+        teams: state.teams.map((t) => ({ ...t, score: 0 })),
+        used: [],
+        phase: { kind: "board" },
+        buzzMode: state.buzzMode,
+        controlTeam: undefined,
+      };
   }
 }

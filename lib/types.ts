@@ -46,6 +46,10 @@ export type CluePhase = {
   lockedTeams: string[];
   resolvedBy?: string;
   dailyDouble?: { teamId?: string; wager?: number };
+  /** Instant buzz mode hides the question from the big screen once someone buzzes. */
+  questionHidden?: boolean;
+  /** Countdown mode: the team that chose this tile answers first, before anyone can buzz. */
+  pickedBy?: string;
 };
 
 export type FinalStep = "wager" | "clue" | "reveal" | "done";
@@ -62,10 +66,19 @@ export type FinalPhase = {
 
 export type Phase = { kind: "board" } | CluePhase | FinalPhase;
 
+/**
+ * "countdown": the team that picked the tile answers first; if they miss or pass, the host counts down for everyone else.
+ * "instant" (free for all): buzzers open as soon as a clue shows.
+ */
+export type BuzzMode = "countdown" | "instant";
+
 export type GameState = {
   teams: Team[];
   used: string[];
   phase: Phase;
+  buzzMode?: BuzzMode;
+  /** Last team to answer correctly; they pick the next tile in countdown mode. */
+  controlTeam?: string;
 };
 
 export type RoomMode = "live" | "local";
@@ -115,6 +128,7 @@ export type PublicSnapshot = {
   slug: string;
   name: string;
   mode: RoomMode;
+  buzzMode: BuzzMode;
   teams: Team[];
   players: Player[];
   buzz: BuzzState;
@@ -127,6 +141,7 @@ export type PublicSnapshot = {
         lockedTeams: string[];
         revealed: boolean;
         resolvedBy?: string;
+        pickedBy?: string;
         dailyDouble?: { teamId?: string; wager?: number; maxWager?: number };
       }
     | {
@@ -147,6 +162,10 @@ export type GameAction =
   | { type: "clue:open"; clueId: string }
   | { type: "clue:reveal" }
   | { type: "clue:hide" }
+  | { type: "clue:question"; hidden: boolean }
+  | { type: "clue:pick"; teamId: string | null }
+  | { type: "clue:pass"; teamId: string }
+  | { type: "settings:buzz-mode"; mode: BuzzMode }
   | { type: "clue:close"; markUsed: boolean }
   | { type: "clue:judge"; teamId: string; correct: boolean }
   | { type: "clue:unuse"; clueId: string }

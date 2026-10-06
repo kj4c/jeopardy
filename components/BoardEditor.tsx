@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GradientBackground } from "@/components/GradientBackground";
 import { MediaField } from "@/components/MediaField";
@@ -17,7 +18,13 @@ type Selection = { kind: "clue"; categoryId: string; clueId: string } | { kind: 
 export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [returnRoom, setReturnRoom] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    setReturnRoom(new URLSearchParams(window.location.search).get("room"));
+  }, []);
   const [status, setStatus] = useState<SaveStatus>("saved");
   const [selection, setSelection] = useState<Selection>(null);
   const [starting, setStarting] = useState(false);
@@ -220,15 +227,27 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
           <button className="btn btn-ghost btn-sm" onClick={() => setSelection({ kind: "final" })}>
             Final Jeopardy
           </button>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={async () => {
-              await flush();
-              setStarting(true);
-            }}
-          >
-            Start game
-          </button>
+          {returnRoom ? (
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={async () => {
+                await flush();
+                router.push(`/host/${returnRoom}`);
+              }}
+            >
+              Back to game
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={async () => {
+                await flush();
+                setStarting(true);
+              }}
+            >
+              Play
+            </button>
+          )}
         </div>
       </header>
 

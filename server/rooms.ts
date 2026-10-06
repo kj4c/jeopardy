@@ -52,6 +52,7 @@ function load(slug: string): LiveRoom | null {
     armedAt: 0,
     countdownToken: 0,
   };
+  refreshBuzz(entry);
   live.set(slug, entry);
   return entry;
 }
@@ -78,6 +79,7 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
       lockedTeams: state.phase.lockedTeams,
       revealed: state.phase.revealed,
       resolvedBy: state.phase.resolvedBy,
+      pickedBy: state.phase.pickedBy,
       dailyDouble: dd
         ? {
             ...dd,
@@ -106,6 +108,7 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
     slug: room.slug,
     name: room.name,
     mode: room.mode,
+    buzzMode: state.buzzMode ?? "countdown",
     teams: state.teams,
     players: lr.players ?? [],
     buzz: lr.buzz,
@@ -132,6 +135,21 @@ function resetBuzz(lr: LiveRoom) {
   lr.buzz = { status: "idle", buzzes: [] };
 }
 
+function armBuzzers(lr: LiveRoom) {
+  lr.countdownToken++;
+  lr.armedAt = Date.now();
+  for (const p of lr.players.values()) p.penaltyUntil = 0;
+  lr.buzz = { status: "armed", buzzes: [] };
+}
+
+/** Clears buzzes, then reopens buzzers straight away if the room is in instant mode with a clue up. */
+function refreshBuzz(lr: LiveRoom) {
+  const { phase, buzzMode } = lr.room.state;
+  const canBuzz = phase.kind === "clue" && !phase.resolvedBy && !phase.dailyDouble;
+  if (lr.room.mode === "live" && buzzMode === "instant" && canBuzz) armBuzzers(lr);
+  else resetBuzz(lr);
+}
+
 function applyAction(lr: LiveRoom, action: GameAction) {
   const before = lr.room.state;
   const after = gameReducer(before, action, lr.board);
@@ -139,12 +157,13 @@ function applyAction(lr: LiveRoom, action: GameAction) {
   const clueChanged =
     before.phase.kind !== after.phase.kind ||
     (before.phase.kind === "clue" && after.phase.kind === "clue" && before.phase.clueId !== after.phase.clueId);
-  if (clueChanged) resetBuzz(lr);
+  lr.room.state = after;
+  const reshown = action.type === "clue:question" && !action.hidden && after.buzzMode === "instant";
+  if (clueChanged || reshown || action.type === "settings:buzz-mode") refreshBuzz(lr);
   if (after.phase.kind === "clue" && after.phase.resolvedBy) {
     lr.countdownToken++;
     lr.buzz = { ...lr.buzz, status: "idle", count: undefined };
   }
-  lr.room.state = after;
   scheduleSave(lr);
   return true;
 }
@@ -195,6 +214,10 @@ function handleBuzz(lr: LiveRoom, player: LivePlayer): BuzzResult {
   const buzzes = [...lr.buzz.buzzes, { playerId: player.id, name: player.name, teamId: player.teamId, time }];
   buzzes.sort((a, b) => a.time - b.time);
   lr.buzz = { ...lr.buzz, buzzes };
+  if (lr.room.state.buzzMode === "instant" && !phase.questionHidden && !phase.revealed) {
+    lr.room.state = { ...lr.room.state, phase: { ...phase, questionHidden: true } };
+    scheduleSave(lr);
+  }
   return { ok: true };
 }
 
@@ -213,7 +236,7 @@ export function syncRoom(slug: string, patch: Partial<Pick<Room, "name" | "mode"
   if (!lr) return;
   const prevPhase = lr.room.state.phase;
   lr.room = { ...lr.room, ...patch };
-  if (patch.mode === "local" || (patch.state && patch.state.phase !== prevPhase)) resetBuzz(lr);
+  if (patch.mode || (patch.state && patch.state.phase !== prevPhase)) refreshBuzz(lr);
   broadcast(lr);
 }
 
@@ -292,7 +315,7 @@ export function attachRooms(server: Server) {
       if (!isHostSocket || !slug) return;
       const lr = live.get(slug);
       if (!lr) return;
-      resetBuzz(lr);
+      refreshBuzz(lr);
       broadcast(lr);
     });
 

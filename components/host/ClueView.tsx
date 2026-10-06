@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { findClue, formatScore } from "@/lib/board";
 import { ddMaxWager } from "@/lib/gameReducer";
-import type { Board, BuzzEntry, BuzzState, CluePhase, GameAction, RoomMode, Team } from "@/lib/types";
+import type { Board, BuzzEntry, BuzzMode, BuzzState, CluePhase, GameAction, RoomMode, Team } from "@/lib/types";
 import { GradientBackground } from "../GradientBackground";
 import { MediaRenderer } from "../MediaRenderer";
+import { BuzzModeToggle } from "./BuzzModeToggle";
 
 function clueTextSize(text: string) {
   if (text.length > 220) return "text-[clamp(1.4rem,min(2.6vw,4.5vh),2.6rem)]";
@@ -18,6 +19,7 @@ export function ClueView({
   phase,
   teams,
   mode,
+  buzzMode,
   buzz,
   dispatch,
   onCountdown,
@@ -27,6 +29,7 @@ export function ClueView({
   phase: CluePhase;
   teams: Team[];
   mode: RoomMode;
+  buzzMode: BuzzMode;
   buzz: BuzzState;
   dispatch: (a: GameAction) => void;
   onCountdown: () => void;
@@ -39,22 +42,31 @@ export function ClueView({
   const resolvedTeam = phase.resolvedBy ? teams.find((t) => t.id === phase.resolvedBy) : undefined;
   const live = mode === "live";
   const showClue = !dd || dd.wager !== undefined;
-  const current = live && !dd ? buzz.buzzes.find((b) => !phase.lockedTeams.includes(b.teamId)) : undefined;
-  const currentTeam = current ? teams.find((t) => t.id === current.teamId) : undefined;
+  const instant = buzzMode === "instant";
+  const turnBased = !instant && !dd && !phase.resolvedBy;
+  const pickedTeam = turnBased && phase.pickedBy ? teams.find((t) => t.id === phase.pickedBy) : undefined;
+  const pickedPending = !!pickedTeam && !phase.lockedTeams.includes(pickedTeam.id);
+  const current =
+    live && !dd && !pickedPending ? buzz.buzzes.find((b) => !phase.lockedTeams.includes(b.teamId)) : undefined;
+  const currentTeam = pickedPending ? pickedTeam : current ? teams.find((t) => t.id === current.teamId) : undefined;
+  const questionHidden = !!phase.questionHidden && !phase.revealed && !phase.resolvedBy;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest("input,textarea")) return;
-      if (e.code === "Space" && showClue && !dd && !phase.resolvedBy) {
+      const key = e.key.toLowerCase();
+      if (e.code === "Space" && showClue && turnBased && !pickedPending) {
         e.preventDefault();
         onCountdown();
-      } else if (e.key.toLowerCase() === "a" && showClue) {
+      } else if (key === "a" && showClue) {
         dispatch({ type: phase.revealed ? "clue:hide" : "clue:reveal" });
+      } else if (key === "q" && showClue) {
+        dispatch({ type: "clue:question", hidden: !phase.questionHidden });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showClue, dd, phase.resolvedBy, phase.revealed, onCountdown, dispatch]);
+  }, [showClue, turnBased, pickedPending, phase.revealed, phase.questionHidden, onCountdown, dispatch]);
 
   if (!found) return null;
   const { clue, category, value } = found;
@@ -69,6 +81,9 @@ export function ClueView({
           {category.title} · {dd ? "Daily Double" : `$${value.toLocaleString("en-US")}`}
           {dd?.wager !== undefined && ` · wager ${formatScore(dd.wager)}`}
         </p>
+        <div className="ml-auto">
+          <BuzzModeToggle mode={buzzMode} dispatch={dispatch} />
+        </div>
         <button
           className="btn btn-primary btn-sm"
           onClick={() => dispatch({ type: "clue:close", markUsed: played })}
@@ -112,10 +127,23 @@ export function ClueView({
                   amount={dd ? (dd.wager ?? 0) : value}
                 />
               )}
-              {clue.question && (
-                <h1 className={`font-display max-w-5xl text-balance ${clueTextSize(clue.question)}`}>{clue.question}</h1>
+              {questionHidden ? (
+                <div className="animate-pop flex flex-col items-center gap-3">
+                  <p className="label !text-sm">Question hidden</p>
+                  {currentTeam && (
+                    <p className="font-display text-[clamp(2.4rem,min(6vw,9vh),6rem)] leading-tight text-muted">
+                      <span style={{ color: currentTeam.color }}>{currentTeam.name}</span> buzzed.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                clue.question && (
+                  <h1 className={`font-display max-w-5xl text-balance ${clueTextSize(clue.question)}`}>
+                    {clue.question}
+                  </h1>
+                )
               )}
-              {clue.media && (
+              {clue.media && !questionHidden && (
                 <div className="flex w-full max-w-4xl justify-center">
                   <MediaRenderer media={clue.media} maxHeight={crowded ? "28vh" : "50vh"} />
                 </div>
@@ -134,14 +162,23 @@ export function ClueView({
                 </div>
               )}
               <div className="mt-4 flex flex-wrap items-center justify-center gap-4">
-                {!dd && !phase.resolvedBy && (
+                {pickedPending && pickedTeam && (
+                  <button
+                    className="btn btn-primary px-10 py-5 text-2xl"
+                    onClick={() => dispatch({ type: "clue:pass", teamId: pickedTeam.id })}
+                    title="Lock out the picking team without losing points, then count down for everyone else"
+                  >
+                    {pickedTeam.name} passes
+                  </button>
+                )}
+                {turnBased && !pickedPending && (
                   <button
                     className="btn btn-primary px-10 py-5 text-2xl"
                     onClick={onCountdown}
                     disabled={buzz.status === "countdown"}
                     title="Shortcut: Space"
                   >
-                    {live && buzz.status === "armed" ? "Countdown again" : "Countdown"}
+                    {live && buzz.status === "armed" ? "Countdown again" : pickedTeam ? "Countdown for others" : "Countdown"}
                   </button>
                 )}
                 <button
@@ -151,7 +188,24 @@ export function ClueView({
                 >
                   {phase.revealed ? "Hide answer" : "Reveal answer"}
                 </button>
+                {!phase.revealed && !phase.resolvedBy && (instant || phase.questionHidden) && (
+                  <button
+                    className="btn btn-ghost px-8 py-5 text-xl"
+                    onClick={() => dispatch({ type: "clue:question", hidden: !phase.questionHidden })}
+                    title="Shortcut: Q"
+                  >
+                    {phase.questionHidden ? "Show question" : "Hide question"}
+                  </button>
+                )}
               </div>
+              {turnBased && (
+                <PickedByPicker
+                  teams={teams}
+                  pickedBy={phase.pickedBy}
+                  lockedTeams={phase.lockedTeams}
+                  onPick={(teamId) => dispatch({ type: "clue:pick", teamId })}
+                />
+              )}
             </>
           )}
           </div>
@@ -165,6 +219,8 @@ export function ClueView({
             showAll={showAllBuzzes}
             onToggleAll={() => setShowAllBuzzes(!showAllBuzzes)}
             current={current}
+            instant={instant}
+            firstUp={pickedPending ? pickedTeam : undefined}
             onReset={phase.resolvedBy ? undefined : onResetBuzz}
           />
         )}
@@ -207,6 +263,49 @@ export function ClueView({
           )}
         </footer>
       )}
+    </div>
+  );
+}
+
+function PickedByPicker({
+  teams,
+  pickedBy,
+  lockedTeams,
+  onPick,
+}: {
+  teams: Team[];
+  pickedBy?: string;
+  lockedTeams: string[];
+  onPick: (teamId: string | null) => void;
+}) {
+  const picked = teams.find((t) => t.id === pickedBy);
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <p className="label">
+        {picked
+          ? lockedTeams.includes(picked.id)
+            ? `${picked.name} is out · count down for the rest`
+            : `${picked.name} picked this · they answer first`
+          : "Who picked this tile?"}
+      </p>
+      <div className="flex flex-wrap justify-center gap-2">
+        {teams.map((t) => {
+          const active = t.id === pickedBy;
+          return (
+            <button
+              key={t.id}
+              onClick={() => onPick(active ? null : t.id)}
+              className={`btn btn-sm ${active ? "btn-ghost" : "btn-ghost opacity-60 hover:opacity-100"}`}
+              style={{
+                borderColor: active ? t.color : undefined,
+                boxShadow: active ? `inset 0 -3px 0 ${t.color}` : undefined,
+              }}
+            >
+              {t.name}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -387,6 +486,8 @@ function BuzzPanel({
   showAll,
   onToggleAll,
   current,
+  instant,
+  firstUp,
   onReset,
 }: {
   buzz: BuzzState;
@@ -395,6 +496,8 @@ function BuzzPanel({
   showAll: boolean;
   onToggleAll: () => void;
   current?: BuzzEntry;
+  instant: boolean;
+  firstUp?: Team;
   onReset?: () => void;
 }) {
   const teamById = new Map(teams.map((t) => [t.id, t]));
@@ -429,9 +532,13 @@ function BuzzPanel({
               ? "Buzzers open…"
               : buzz.status === "countdown"
                 ? `Get ready… ${buzz.count ?? ""}`
-                : buzz.buzzes.length
+                : firstUp
+                  ? `${firstUp.name} answers first.`
+                  : buzz.buzzes.length
                   ? "Everyone who buzzed is locked out."
-                  : "Press Countdown to open buzzers."}
+                  : instant
+                    ? "Press Reset buzzers to open them."
+                    : "Press Countdown to open buzzers."}
           </p>
         )}
         {onReset && (buzz.status !== "idle" || buzz.buzzes.length > 0) && (

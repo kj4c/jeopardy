@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GradientBackground } from "@/components/GradientBackground";
+import { BuzzModeToggle } from "@/components/host/BuzzModeToggle";
 import { ClueView } from "@/components/host/ClueView";
 import { CountdownOverlay } from "@/components/host/CountdownOverlay";
 import { FinalView } from "@/components/host/FinalView";
@@ -132,6 +133,7 @@ export default function HostPage() {
             </button>
           ))}
         </div>
+        <BuzzModeToggle mode={room.state.buzzMode ?? "countdown"} dispatch={dispatch} />
         {live && (
           <button className="btn btn-ghost btn-sm" onClick={() => setShowJoin(!showJoin)}>
             {showJoin ? "Hide QR" : "Show QR"}
@@ -143,7 +145,7 @@ export default function HostPage() {
         >
           Final Jeopardy
         </button>
-        <Link href={`/b/${board.slug}`} className="btn btn-ghost btn-sm">
+        <Link href={`/b/${board.slug}?room=${encodeURIComponent(room.slug)}`} className="btn btn-ghost btn-sm">
           Edit board
         </Link>
         <button
@@ -198,6 +200,7 @@ export default function HostPage() {
           phase={phase}
           teams={room.state.teams}
           mode={room.mode}
+          buzzMode={room.state.buzzMode ?? "countdown"}
           buzz={buzz}
           dispatch={dispatch}
           onCountdown={live ? game.countdown : runLocalCountdown}
