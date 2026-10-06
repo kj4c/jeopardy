@@ -16,6 +16,5 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/server.ts /app/next.config.ts /app/tsconfig.json ./
 COPY --from=build /app/server ./server
 COPY --from=build /app/lib ./lib
-VOLUME /data
 EXPOSE 3000
 CMD ["npx", "tsx", "server.ts"]
