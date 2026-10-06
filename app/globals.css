@@ -114,6 +114,11 @@ body {
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+    /* The gradient only paints inside the box; give descenders and italic overhangs room without shifting layout. */
+    padding: 0.08em 0.12em 0.22em;
+    margin: -0.08em -0.12em -0.22em;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
 
   .value-text {
