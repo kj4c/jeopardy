@@ -72,10 +72,10 @@ export function ClueView({
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest("input,textarea")) return;
       const key = e.key.toLowerCase();
-      if (e.code === "Space" && showClue && canCountdown && !pickedPending) {
-        e.preventDefault();
+      if (key === "c" && showClue && canCountdown && !pickedPending) {
         onCountdown();
-      } else if (key === "a" && showClue) {
+      } else if ((e.code === "Space" || key === "a") && showClue) {
+        e.preventDefault();
         dispatch({ type: phase.revealed ? "clue:hide" : "clue:reveal" });
       } else if (key === "q" && showClue) {
         dispatch({ type: "clue:question", hidden: !phase.questionHidden });
@@ -99,8 +99,8 @@ export function ClueView({
           {dd?.wager !== undefined && ` · wager ${formatScore(dd.wager)}`}
         </p>
         <div className="ml-auto flex items-center gap-2">
-          <button className="btn btn-ghost btn-sm" onClick={onOpenPowerups}>
-            Power-ups
+          <button className="btn btn-ghost btn-sm gap-2 !border-g-violet/80 hover:!border-g-violet" onClick={onOpenPowerups}>
+            <span aria-hidden>⚡</span> Power-ups
           </button>
           <BuzzModeToggle mode={buzzMode} dispatch={dispatch} />
         </div>
@@ -144,7 +144,7 @@ export function ClueView({
                 <ResultBanner
                   team={resolvedTeam ?? ddTeam}
                   correct={!!resolvedTeam}
-                  amount={dd ? (dd.wager ?? 0) : value}
+                  amount={dd ? (dd.wager ?? 0) : value * (resolvedTeam && fx?.doubled.includes(resolvedTeam.id) ? 2 : 1)}
                 />
               )}
               {questionHidden ? (
@@ -196,7 +196,7 @@ export function ClueView({
                     className="btn btn-primary px-10 py-5 text-2xl"
                     onClick={onCountdown}
                     disabled={buzz.status === "countdown"}
-                    title="Shortcut: Space"
+                    title="Shortcut: C"
                   >
                     {live && buzz.status === "armed" ? "Countdown again" : pickedTeam ? "Countdown for others" : "Countdown"}
                   </button>
@@ -204,7 +204,7 @@ export function ClueView({
                 <button
                   className="btn btn-ghost px-10 py-5 text-2xl"
                   onClick={() => dispatch({ type: phase.revealed ? "clue:hide" : "clue:reveal" })}
-                  title="Shortcut: A"
+                  title="Shortcut: Space"
                 >
                   {phase.revealed ? "Hide answer" : "Reveal answer"}
                 </button>
@@ -231,6 +231,7 @@ export function ClueView({
                 hint={clue.hint}
                 resolved={!!phase.resolvedBy}
                 foundBy={phase.powerFoundBy ? teamName(phase.powerFoundBy) : undefined}
+                unclaimed={phase.powerFoundBy === "none"}
                 foundPower={clue.powerup}
                 teamName={teamName}
               />
@@ -275,9 +276,18 @@ export function ClueView({
             </div>
           ) : (
             <div>
-              <p className="label mb-3 text-center !text-sm">
-                {dd ? "Judge the Daily Double" : currentTeam ? `${currentTeam.name} is answering` : "Who answered?"}
-              </p>
+              <div className="relative mb-3 flex items-center justify-center">
+                <p className="label text-center !text-sm">
+                  {dd ? "Judge the Daily Double" : currentTeam ? `${currentTeam.name} is answering` : "Who answered?"}
+                </p>
+                <button
+                  className="btn btn-ghost btn-sm absolute right-0"
+                  onClick={() => dispatch({ type: "clue:skip" })}
+                  title="No one else answers: show the answer and end this clue with no points"
+                >
+                  {dd ? "No answer" : phase.lockedTeams.length || phase.answered?.length ? "Everyone else skips" : "Nobody answers"}
+                </button>
+              </div>
               <div
                 className="grid gap-3"
                 style={{
@@ -308,6 +318,11 @@ export function ClueView({
                     }
                     active={currentTeam?.id === t.id || !!dd}
                     onJudge={(correct) => dispatch({ type: "clue:judge", teamId: t.id, correct })}
+                    onUnlock={
+                      !dd && phase.lockedTeams.includes(t.id) && phase.forced?.teamId !== t.id
+                        ? () => dispatch({ type: "clue:unlock", teamId: t.id })
+                        : undefined
+                    }
                   />
                 ))}
               </div>
@@ -324,6 +339,7 @@ function PowerStrip({
   hint,
   resolved,
   foundBy,
+  unclaimed,
   foundPower,
   teamName,
 }: {
@@ -331,6 +347,7 @@ function PowerStrip({
   hint?: string;
   resolved: boolean;
   foundBy?: Team;
+  unclaimed: boolean;
   foundPower?: PowerType;
   teamName: (id: string) => Team | undefined;
 }) {
@@ -347,7 +364,7 @@ function PowerStrip({
   const hinted = (fx?.hints ?? []).map(teamName).filter(Boolean) as Team[];
   const duel = fx?.duel;
 
-  if (!chips.length && !hinted.length && !foundBy && !duel) return null;
+  if (!chips.length && !hinted.length && !foundBy && !unclaimed && !duel) return null;
   return (
     <div className="flex max-w-5xl flex-col items-center gap-3">
       {duel && (
@@ -380,6 +397,11 @@ function PowerStrip({
         <p className="animate-pop label !text-base">
           <span style={{ color: foundBy.color }}>{foundBy.name}</span> found a hidden power-up: {POWERS[foundPower].icon}{" "}
           {POWERS[foundPower].name}
+        </p>
+      )}
+      {unclaimed && foundPower && (
+        <p className="animate-pop label !text-base">
+          Nobody got it, but there was a hidden power-up: {POWERS[foundPower].icon} {POWERS[foundPower].name}
         </p>
       )}
       {chips.length > 0 && (
@@ -459,7 +481,7 @@ function PickedByPicker({
 }
 
 function ResultBanner({ team, correct, amount }: { team?: Team; correct: boolean; amount: number }) {
-  if (!team) return null;
+  if (!team) return <p className="animate-pop font-display text-[clamp(2rem,min(5vw,8vh),4.5rem)] text-muted">Nobody got it</p>;
   return (
     <div className="animate-pop flex flex-col items-center gap-2 pb-2">
       <p className="label !text-base">{correct ? "Correct!" : "Not quite"}</p>
@@ -501,6 +523,7 @@ export function JudgeChip({
   note,
   active,
   onJudge,
+  onUnlock,
 }: {
   team: Team;
   amount: number;
@@ -511,6 +534,8 @@ export function JudgeChip({
   note?: string;
   active: boolean;
   onJudge: (correct: boolean) => void;
+  /** Shown on a locked-out card to let the team back in. */
+  onUnlock?: () => void;
 }) {
   const [delta, setDelta] = useState<{ value: number; key: number } | null>(null);
   const prevScore = useRef(team.score);
@@ -525,7 +550,7 @@ export function JudgeChip({
 
   return (
     <div
-      className={`relative flex min-w-0 flex-col border-2 bg-ink transition ${locked ? "opacity-45" : ""}`}
+      className="relative flex min-w-0 flex-col border-2 bg-ink transition"
       style={{
         borderColor: active ? team.color : "var(--color-line-strong)",
         boxShadow: active ? `0 0 32px -6px ${team.color}` : undefined,
@@ -543,7 +568,7 @@ export function JudgeChip({
           {formatScore(Math.abs(delta.value))}
         </span>
       )}
-      <div className="flex items-baseline justify-between gap-3 px-4 pb-2 pt-3">
+      <div className={`flex items-baseline justify-between gap-3 px-4 pb-2 pt-3 ${locked ? "opacity-45" : ""}`}>
         <span className="flex min-w-0 items-baseline gap-2">
           <span className="truncate text-2xl font-semibold">{team.name}</span>
           {note && <span className="label shrink-0 !text-coral">{note}</span>}
@@ -553,8 +578,13 @@ export function JudgeChip({
         </span>
       </div>
       {locked ? (
-        <div className="flex flex-1 items-center justify-center border-t border-line-strong py-4 text-xl text-bad">
-          {lockedLabel}
+        <div className="flex flex-1 items-center justify-center gap-4 border-t border-line-strong py-3">
+          <span className="text-xl text-bad opacity-60">{lockedLabel}</span>
+          {onUnlock && (
+            <button className="btn btn-ghost btn-sm" onClick={onUnlock} title="Let this team buzz and answer again">
+              Unlock
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid flex-1 grid-cols-2 border-t border-line-strong">

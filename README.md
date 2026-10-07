@@ -16,11 +16,11 @@ Open http://localhost:3000. The terminal also prints a `http://192.168.x.x:3000`
 
 1. **Boards** → **Create a board** with a name and a password. The name becomes the board's permanent link, `/b/your-board-name`. On any other device, open that link (or type the name under **Open a board**) and enter the password to edit or host. A device stays unlocked for 30 days, or until you press **Lock**. In the editor, name categories, add/remove rows and columns, click a tile to write the clue, answer, image or YouTube link, and mark Daily Doubles. Set the Final Jeopardy clue from the toolbar.
 2. **Start game** on a board. Give the room any name (it becomes `/play/your-room-name` and never changes), choose **Live room** or **In person**, and set up teams. A board can have many rooms; each room keeps its own scores and resumes where you left off.
-3. **Live room**: players scan the QR code, enter a name and pick a team (any number per team). Open a clue, press **Countdown** (or Space). After 3-2-1 every phone lights up; the first buzz shows on screen with the team and player, plus the full buzz order. Buzzing early gives a short penalty. Mark ✓ or ✕ per team; a wrong answer locks out the whole team.
+3. **Live room**: players scan the QR code, enter a name and pick a team (any number per team). Open a clue, press **Countdown** (or C). After 3-2-1 every phone lights up; the first buzz shows on screen with the team and player, plus the full buzz order. Buzzing early gives a short penalty. Mark ✓ or ✕ per team; a wrong answer locks out the whole team.
 4. **In person**: same board, no phones. Tap the team that answered, then ✓ or ✕. The countdown still shows on screen for hand or bell buzzing.
 5. **Daily Double**: pick the team, then they wager on their phone (or you type it). **Final Jeopardy**: teams with a positive score wager and answer on their phones; you reveal and judge each one.
 
-Shortcuts on the clue screen: `Space` countdown, `A` reveal answer. Right-click a used tile to restore it.
+Shortcuts on the clue screen: `Space` reveal answer, `C` countdown, `Q` show/hide question. Right-click a used tile to restore it.
 
 ## Configuration
 

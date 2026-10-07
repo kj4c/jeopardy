@@ -196,6 +196,10 @@ export function updateRoom(slug: string, patch: { name?: string; mode?: RoomMode
   return next;
 }
 
+export function countBoards(): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM boards").get() as { n: number }).n;
+}
+
 export function deleteRoom(slug: string) {
   db.prepare("DELETE FROM rooms WHERE slug = ?").run(slug);
 }

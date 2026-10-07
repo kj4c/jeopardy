@@ -82,7 +82,13 @@ export function FinalView({
                 <MediaRenderer media={fj.media} maxHeight="38vh" />
               </div>
             )}
-            <Timer seconds={30} />
+            <Timer
+              seconds={30}
+              endsAt={phase.timerEndsAt}
+              timeUp={!!phase.timeUp}
+              onStart={(seconds) => dispatch({ type: "final:timer", seconds })}
+              onTimeUp={live ? undefined : () => dispatch({ type: "final:time-up" })}
+            />
             <div className="flex flex-wrap justify-center gap-3">
               {eligible.map((t) => (
                 <AnswerCard
@@ -90,6 +96,7 @@ export function FinalView({
                   team={t}
                   answer={phase.answers[t.id]}
                   live={live}
+                  timeUp={!!phase.timeUp}
                   onSubmit={(text) => dispatch({ type: "final:answer", teamId: t.id, text })}
                 />
               ))}
@@ -201,11 +208,13 @@ function AnswerCard({
   team,
   answer,
   live,
+  timeUp,
   onSubmit,
 }: {
   team: Team;
   answer?: { text: string; by?: string };
   live: boolean;
+  timeUp: boolean;
   onSubmit: (text: string) => void;
 }) {
   const [value, setValue] = useState("");
@@ -215,7 +224,7 @@ function AnswerCard({
       {answer ? (
         <p className="text-good">Response in{answer.by ? ` from ${answer.by}` : ""}</p>
       ) : live ? (
-        <p className="text-muted">Writing…</p>
+        <p className="text-muted">{timeUp ? "No response" : "Writing…"}</p>
       ) : (
         <form
           className="flex gap-2"
@@ -303,16 +312,38 @@ function CorrectResponse({ answer }: { answer: string }) {
   );
 }
 
-function Timer({ seconds }: { seconds: number }) {
-  const [left, setLeft] = useState<number | null>(null);
+function Timer({
+  seconds,
+  endsAt,
+  timeUp,
+  onStart,
+  onTimeUp,
+}: {
+  seconds: number;
+  endsAt?: number;
+  timeUp: boolean;
+  onStart: (seconds: number) => void;
+  /** In-person games have no server to end the timer. */
+  onTimeUp?: () => void;
+}) {
+  const secondsLeft = () => (timeUp || !endsAt ? 0 : Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+  const [left, setLeft] = useState(secondsLeft);
   useEffect(() => {
-    if (left === null || left <= 0) return;
-    const t = setTimeout(() => setLeft(left - 1), 1000);
-    return () => clearTimeout(t);
-  }, [left]);
-  if (left === null) {
+    setLeft(secondsLeft());
+    if (!endsAt || timeUp) return;
+    const t = setInterval(() => {
+      const s = secondsLeft();
+      setLeft(s);
+      if (s <= 0) {
+        clearInterval(t);
+        onTimeUp?.();
+      }
+    }, 250);
+    return () => clearInterval(t);
+  }, [endsAt, timeUp]);
+  if (!endsAt) {
     return (
-      <button className="btn btn-ghost btn-sm" onClick={() => setLeft(seconds)}>
+      <button className="btn btn-ghost btn-sm" onClick={() => onStart(seconds)}>
         Start {seconds}s timer
       </button>
     );
@@ -325,7 +356,7 @@ function Timer({ seconds }: { seconds: number }) {
           style={{ width: `${(left / seconds) * 100}%` }}
         />
       </div>
-      <p className="label mt-2">{left > 0 ? `${left}s` : "Time's up"}</p>
+      <p className="label mt-2">{left > 0 ? `${left}s` : "Time's up · responses locked in"}</p>
     </div>
   );
 }

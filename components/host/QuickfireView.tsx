@@ -43,7 +43,8 @@ export function QuickfireView({
       if ((e.code === "Space" || e.key === "ArrowRight") && phase.resolvedBy) {
         e.preventDefault();
         dispatch({ type: "quickfire:next" });
-      } else if (key === "a") {
+      } else if (key === "a" || e.code === "Space") {
+        e.preventDefault();
         dispatch({ type: "quickfire:reveal" });
       } else if (key === "s" && !phase.resolvedBy) {
         dispatch({ type: "quickfire:skip" });
@@ -146,7 +147,7 @@ export function QuickfireView({
                   <button
                     className="btn btn-ghost px-10 py-5 text-2xl"
                     onClick={() => dispatch({ type: "quickfire:reveal" })}
-                    title="Shortcut: A"
+                    title="Shortcut: Space or A"
                   >
                     {phase.revealed ? "Hide answer" : "Reveal answer"}
                   </button>

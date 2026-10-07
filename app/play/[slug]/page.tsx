@@ -178,7 +178,7 @@ export default function PlayPage() {
       </div>
       {snap.mode === "live" && me && <PowerPanel snap={snap} myTeam={myTeam} me={me} />}
       <TeamStrip teams={snap.teams} myTeamId={myTeam.id} />
-      <PowerNoticeToast notice={snap.powerNotice} teams={snap.teams} />
+      <PowerNoticeToast notices={snap.powerNotices} teams={snap.teams} myTeamId={myTeam.id} />
     </main>
   );
 }
@@ -416,7 +416,8 @@ function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam:
     if (!eligible) return <Waiting title="Final Jeopardy" body="Watch the screen." />;
     const answer = phase.answers[myTeam.id];
     if (answer) return <Waiting title="Response in." body={`Submitted by ${answer.by ?? "the host"}.`} />;
-    return <FinalAnswerInput />;
+    if (phase.timeUp) return <Waiting title="Time's up." body="Your team didn't get a response in." />;
+    return <FinalAnswerInput timerLeftMs={phase.timerLeftMs} />;
   }
   return <Waiting title="Final Jeopardy" body="Eyes on the big screen." />;
 }
@@ -620,10 +621,30 @@ function WagerInput({ title, label = "Daily Double", max }: { title: string; lab
   );
 }
 
-function FinalAnswerInput() {
+function FinalAnswerInput({ timerLeftMs }: { timerLeftMs?: number }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [left, setLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => getSocket().emit("player:final-draft", { text: value }), 200);
+    return () => clearTimeout(t);
+  }, [value]);
+
+  useEffect(() => {
+    if (timerLeftMs === undefined) return setLeft(null);
+    const deadline = Date.now() + timerLeftMs;
+    const tick = () => setLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    tick();
+    const t = setInterval(tick, 250);
+    return () => clearInterval(t);
+  }, [timerLeftMs]);
+
+  const outOfTime = left === 0;
+  useEffect(() => {
+    if (outOfTime) getSocket().emit("player:final-draft", { text: value });
+  }, [outOfTime]);
   return (
     <form
       className="animate-fade-up w-full max-w-sm"
@@ -638,17 +659,21 @@ function FinalAnswerInput() {
       }}
     >
       <p className="label mb-3">Final Jeopardy</p>
-      <h1 className="font-display mb-6 text-5xl">Your response</h1>
+      <h1 className="font-display mb-2 text-5xl">Your response</h1>
+      <p className={`mb-6 text-lg tabular-nums ${left !== null && left <= 10 ? "text-bad" : "text-muted"}`}>
+        {left === null ? "\u00a0" : outOfTime ? "Time's up! Sending what you wrote…" : `${left}s left`}
+      </p>
       <textarea
         className="field min-h-28 text-lg"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder="What is…"
         maxLength={200}
+        disabled={outOfTime}
         autoFocus
       />
       {error && <p className="mt-2 text-sm text-bad">{error}</p>}
-      <button className="btn btn-primary mt-4 w-full py-4 text-lg" disabled={busy || !value.trim()}>
+      <button className="btn btn-primary mt-4 w-full py-4 text-lg" disabled={busy || outOfTime || !value.trim()}>
         Submit response
       </button>
     </form>
@@ -662,8 +687,8 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
   const leader = snap.players.find((p) => p.teamId === myTeam.id && p.leader);
   const [error, setError] = useState("");
   const [targeting, setTargeting] = useState<PowerType | null>(null);
-
-  const [busy, setBusy] = useState(false);
+  const [activating, setActivating] = useState<PowerType | null>(null);
+  const busy = !!activating;
 
   const needsDraft = !!settings?.enabled.length && settings.draftCount > 0 && !myTeam.drafted;
   if (!needsDraft && !owned.length && !queued.length) return null;
@@ -679,14 +704,15 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
   };
 
   async function use(power: PowerType, targetTeamId?: string, names?: { playerName: string; targetPlayerName: string }) {
-    setBusy(true);
+    setActivating(power);
     setError("");
+    vibrate(20);
     const res = await emitAck<{ ok?: boolean; error?: string }>("player:power", {
       power,
       targetTeamId,
       ...names,
     }).catch(() => ({ error: "timeout" }));
-    setBusy(false);
+    setActivating(null);
     setTargeting(null);
     if (res.error) setError(res.error === "not_your_turn" ? "Wait until your team is answering." : "Couldn't use that right now.");
     else vibrate(60);
@@ -708,32 +734,51 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
         <p className="label">Team power-ups</p>
         {!me.leader && leader && <p className="text-xs text-muted">Only {leader.name} can use them</p>}
       </div>
-      {queued.length > 0 && (
-        <p className="mb-2 text-sm text-coral">
-          Ready for the next question:{" "}
-          {queued
-            .map((q) => `${POWERS[q.power].name}${q.targetTeamId ? ` → ${snap.teams.find((t) => t.id === q.targetTeamId)?.name ?? ""}` : ""}`)
-            .join(", ")}
-        </p>
-      )}
       <div className="flex gap-2 overflow-x-auto pb-1">
+        {queued.map((q) => {
+          const info = POWERS[q.power];
+          const target = snap.teams.find((t) => t.id === q.targetTeamId);
+          return (
+            <div
+              key={`q-${q.power}`}
+              className="animate-pop flex min-w-36 shrink-0 flex-col items-start border-2 border-coral bg-coral/25 p-2.5 text-left"
+            >
+              <span className="text-sm font-semibold">
+                ✓ {info.icon} {info.name}
+                {target && <span className="font-normal"> → {target.name}</span>}
+              </span>
+              <span className="text-xs text-cream/80">Active for the next question</span>
+            </div>
+          );
+        })}
         {owned.map((p) => {
           const info = POWERS[p];
           const can = me.leader && usable(p) && !busy;
+          const selected = activating === p || targeting === p;
           return (
             <button
               key={p}
-              disabled={!can}
+              disabled={!can && !selected}
               onClick={() => (POWERS[p].needsTarget ? setTargeting(targeting === p ? null : p) : use(p))}
-              className={`flex min-w-36 shrink-0 flex-col items-start border p-2.5 text-left transition ${
-                can ? "border-coral/70 bg-coral/10 active:scale-[0.98]" : "border-line-strong opacity-60"
+              className={`flex min-w-36 shrink-0 flex-col items-start border-2 p-2.5 text-left transition active:scale-[0.97] ${
+                selected
+                  ? "scale-[1.03] border-coral bg-coral/30 shadow-[0_0_24px_-6px_var(--color-coral)]"
+                  : can
+                    ? "border-coral/60 bg-coral/10"
+                    : "border-line-strong opacity-60"
               }`}
             >
               <span className="text-sm font-medium">
                 {info.icon} {info.name} {(myTeam.powers?.[p] ?? 0) > 1 && <span className="text-muted">×{myTeam.powers?.[p]}</span>}
               </span>
-              <span className="text-xs text-muted">
-                {info.timing === "board" ? "Use before a question is picked" : "Use when your team is answering"}
+              <span className={`text-xs ${selected ? "text-cream" : "text-muted"}`}>
+                {activating === p
+                  ? "Activating…"
+                  : targeting === p
+                    ? "Pick a team below"
+                    : info.timing === "board"
+                      ? "Use before a question is picked"
+                      : "Use when your team is answering"}
               </span>
             </button>
           );

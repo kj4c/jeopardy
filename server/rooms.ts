@@ -27,10 +27,15 @@ type LiveRoom = {
   countdownToken: number;
   saveTimer?: NodeJS.Timeout;
   emptySince?: number;
+  /** Final Jeopardy responses still being typed, by player. Submitted automatically when time runs out. */
+  finalDrafts: Map<string, { teamId: string; text: string; by: string; at: number }>;
+  finalTimerToken: number;
 };
 
 const MAX_LATENCY_CREDIT_MS = 150;
 const FALSE_START_PENALTY_MS = 500;
+/** Lets the last keystrokes from phones arrive before Final Jeopardy responses lock. */
+const FINAL_GRACE_MS = 750;
 const IDLE_UNLOAD_MS = 30 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -52,6 +57,8 @@ function load(slug: string): LiveRoom | null {
     armAt: 0,
     armedAt: 0,
     countdownToken: 0,
+    finalDrafts: new Map(),
+    finalTimerToken: 0,
   };
   refreshBuzz(entry);
   live.set(slug, entry);
@@ -127,6 +134,8 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
         ]),
       ),
       answers: Object.fromEntries(Object.entries(p.answers).map(([k, v]) => [k, { by: v.by }])),
+      timerLeftMs: p.timerEndsAt && !p.timeUp ? Math.max(0, p.timerEndsAt - Date.now()) : undefined,
+      timeUp: p.timeUp,
     };
   } else if (state.phase.kind === "quickfire") {
     phase = {
@@ -151,7 +160,7 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
     phase,
     powerSettings: state.powerSettings,
     queued: state.queued ?? [],
-    powerNotice: state.powerNotice,
+    powerNotices: state.powerNotices ?? [],
     answeringTeam: answeringTeam(state, lr.buzz, room.mode),
   };
 }
@@ -192,10 +201,40 @@ function refreshBuzz(lr: LiveRoom) {
   else resetBuzz(lr);
 }
 
+/** Submits each team's latest typed Final Jeopardy response if they haven't sent one. */
+function commitFinalDrafts(lr: LiveRoom) {
+  const latest = new Map<string, { text: string; by: string; at: number }>();
+  for (const d of lr.finalDrafts.values()) {
+    if (d.text.trim() && (latest.get(d.teamId)?.at ?? -1) < d.at) latest.set(d.teamId, d);
+  }
+  lr.finalDrafts.clear();
+  for (const [teamId, d] of latest) {
+    const phase = lr.room.state.phase;
+    if (phase.kind !== "final" || phase.answers[teamId]) continue;
+    lr.room.state = gameReducer(lr.room.state, { type: "final:answer", teamId, text: d.text.trim(), by: d.by }, lr.board);
+  }
+}
+
 function applyAction(lr: LiveRoom, action: GameAction) {
+  const prev = lr.room.state.phase;
+  const closesAnswers =
+    prev.kind === "final" &&
+    prev.step === "clue" &&
+    (action.type === "final:time-up" || (action.type === "final:step" && action.step !== "clue"));
+  if (closesAnswers) commitFinalDrafts(lr);
+  if (action.type === "final:start") lr.finalDrafts.clear();
   const before = lr.room.state;
   const after = gameReducer(before, action, lr.board);
-  if (after === before) return false;
+  if (action.type === "final:timer" && after !== before && after.phase.kind === "final" && after.phase.timerEndsAt) {
+    const token = ++lr.finalTimerToken;
+    setTimeout(() => {
+      if (lr.finalTimerToken === token && applyAction(lr, { type: "final:time-up" })) broadcast(lr);
+    }, after.phase.timerEndsAt - Date.now() + FINAL_GRACE_MS);
+  }
+  if (after === before) {
+    if (closesAnswers) scheduleSave(lr);
+    return closesAnswers;
+  }
   const clueChanged =
     before.phase.kind !== after.phase.kind ||
     (before.phase.kind === "clue" && after.phase.kind === "clue" && before.phase.clueId !== after.phase.clueId) ||
@@ -205,6 +244,9 @@ function applyAction(lr: LiveRoom, action: GameAction) {
   const forcedDone =
     before.phase.kind === "clue" && after.phase.kind === "clue" && !!forcedTeam(before.phase) && !forcedTeam(after.phase);
   if (clueChanged || reshown || forcedDone || action.type === "settings:buzz-mode") refreshBuzz(lr);
+  if (action.type === "clue:unlock") {
+    lr.buzz = { ...lr.buzz, buzzes: lr.buzz.buzzes.filter((b) => b.teamId !== action.teamId) };
+  }
   if ((after.phase.kind === "clue" || after.phase.kind === "quickfire") && after.phase.resolvedBy) {
     lr.countdownToken++;
     lr.buzz = { ...lr.buzz, status: "idle", count: undefined };
@@ -526,7 +568,7 @@ export function attachRooms(server: Server) {
       if (!cur || !teamId) return ack?.({ error: "noteam" });
       const { lr, player } = cur;
       const phase = lr.room.state.phase;
-      if (phase.kind !== "final" || phase.step !== "clue" || phase.answers[teamId]) {
+      if (phase.kind !== "final" || phase.step !== "clue" || phase.timeUp || phase.answers[teamId]) {
         return ack?.({ error: "not_accepted" });
       }
       const text = String(data?.text ?? "").trim();
@@ -534,6 +576,16 @@ export function attachRooms(server: Server) {
       const changed = applyAction(lr, { type: "final:answer", teamId, text, by: player.name });
       ack?.(changed ? { ok: true } : { error: "not_accepted" });
       if (changed) broadcast(lr);
+    });
+
+    socket.on("player:final-draft", (data: { text: string }) => {
+      const cur = currentPlayer();
+      const teamId = cur?.player.teamId;
+      if (!cur || !teamId) return;
+      const phase = cur.lr.room.state.phase;
+      if (phase.kind !== "final" || phase.step !== "clue" || phase.timeUp || !phase.eligible.includes(teamId)) return;
+      const text = String(data?.text ?? "").slice(0, 200);
+      cur.lr.finalDrafts.set(cur.player.id, { teamId, text, by: cur.player.name, at: Date.now() });
     });
 
     socket.on("disconnect", () => {

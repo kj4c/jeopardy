@@ -68,22 +68,51 @@ function addPower(teams: Team[], teamId: string, power: PowerType, delta: number
   );
 }
 
-function notice(teamId: string, power: PowerType, kind: PowerNotice["kind"], targetTeamId?: string): PowerNotice {
+function notice(teamId: string | undefined, power: PowerType, kind: PowerNotice["kind"], targetTeamId?: string): PowerNotice {
   return { id: newId("n_"), teamId, power, kind, targetTeamId };
 }
 
-/** Gives the clue's hidden power-up (if any) to `teamId`. `state.phase` must be the clue. */
-function awardHiddenPower(state: GameState, board: Board, teamId: string | undefined): GameState {
+const MAX_NOTICES = 6;
+
+function withNotices(state: GameState, ...notices: PowerNotice[]): GameState {
+  if (!notices.length) return state;
+  return { ...state, powerNotices: [...(state.powerNotices ?? []), ...notices].slice(-MAX_NOTICES) };
+}
+
+/**
+ * Gives the clue's hidden power-up (if any) to `teamId`. With no team and `unclaimed`, announces that nobody won it.
+ * `state.phase` must be the clue.
+ */
+function awardHiddenPower(state: GameState, board: Board, teamId: string | undefined, unclaimed = false): GameState {
   const { phase } = state;
-  if (phase.kind !== "clue" || phase.powerFoundBy || !teamId || !state.teams.some((t) => t.id === teamId)) return state;
+  if (phase.kind !== "clue" || phase.powerFoundBy) return state;
   const power = findClue(board, phase.clueId)?.clue.powerup;
   if (!power) return state;
-  return {
-    ...state,
-    teams: addPower(state.teams, teamId, power, 1),
-    powerNotice: notice(teamId, power, "found"),
-    phase: { ...phase, powerFoundBy: teamId },
-  };
+  if (!teamId || !state.teams.some((t) => t.id === teamId)) {
+    if (!unclaimed) return state;
+    return withNotices({ ...state, phase: { ...phase, powerFoundBy: "none" } }, notice(undefined, power, "missed"));
+  }
+  return withNotices(
+    { ...state, teams: addPower(state.teams, teamId, power, 1), phase: { ...phase, powerFoundBy: teamId } },
+    notice(teamId, power, "found"),
+  );
+}
+
+/** Announces Doubles wasted by teams that never answered. Call once, as the clue ends. */
+function lostDoubles(state: GameState): GameState {
+  const { phase } = state;
+  if (phase.kind !== "clue" || phase.dailyDouble) return state;
+  const lost = (phase.effects?.doubled ?? []).filter((id) => !phase.answered?.includes(id));
+  return withNotices(
+    state,
+    ...lost.map((id) => ({ ...notice(id, "double", "lost"), detail: "They didn't answer the question." })),
+  );
+}
+
+/** Team whose turn it is to pick, when a turn order is set. */
+export function turnTeam(state: GameState): string | undefined {
+  const order = (state.turnOrder ?? []).filter((id) => state.teams.some((t) => t.id === id));
+  return order.length ? order[(state.turnNext ?? 0) % order.length] : undefined;
 }
 
 /**
@@ -117,6 +146,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
         teams: state.teams.filter((t) => t.id !== action.teamId),
         controlTeam: state.controlTeam === action.teamId ? undefined : state.controlTeam,
         queued: state.queued?.filter((q) => q.teamId !== action.teamId && q.targetTeamId !== action.teamId),
+        turnOrder: state.turnOrder?.filter((id) => id !== action.teamId),
       };
     case "score:adjust":
       return { ...state, teams: addScore(state.teams, action.teamId, Math.round(action.delta)) };
@@ -125,14 +155,17 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       const found = findClue(board, action.clueId);
       if (!found) return state;
       const next: CluePhase = { kind: "clue", clueId: action.clueId, revealed: false, lockedTeams: [] };
+      const countdown = state.buzzMode !== "instant";
+      const turn = countdown ? turnTeam(state) : undefined;
       if (found.clue.dailyDouble) {
-        next.dailyDouble = {};
+        next.dailyDouble = { teamId: turn };
         return { ...state, phase: next };
       }
       const queued = state.queued ?? [];
       const duel = queued.find((q) => q.power === "duel" && q.duel)?.duel;
-      if (!duel && state.buzzMode !== "instant" && state.teams.some((t) => t.id === state.controlTeam)) {
-        next.pickedBy = state.controlTeam;
+      const picker = turn ?? state.controlTeam;
+      if (!duel && countdown && state.teams.some((t) => t.id === picker)) {
+        next.pickedBy = picker;
       }
       if (queued.length) {
         next.effects = {
@@ -167,13 +200,37 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       if (phase.kind !== "clue" || phase.resolvedBy || phase.dailyDouble) return state;
       if (isOut(phase, action.teamId) || phase.forced?.teamId === action.teamId) return state;
       return { ...state, phase: { ...phase, lockedTeams: [...phase.lockedTeams, action.teamId] } };
+    case "clue:unlock":
+      if (phase.kind !== "clue" || phase.resolvedBy || !phase.lockedTeams.includes(action.teamId)) return state;
+      return { ...state, phase: { ...phase, lockedTeams: phase.lockedTeams.filter((id) => id !== action.teamId) } };
     case "clue:close": {
       if (phase.kind !== "clue") return state;
       const finder = phase.dailyDouble?.teamId ?? (state.buzzMode !== "instant" ? phase.pickedBy : undefined);
-      const awarded = action.markUsed ? awardHiddenPower(state, board, finder) : state;
+      let next = state;
+      if (action.markUsed) {
+        if (!phase.resolvedBy) next = lostDoubles(next);
+        next = awardHiddenPower(next, board, finder, true);
+      }
       const used =
         action.markUsed && !state.used.includes(phase.clueId) ? [...state.used, phase.clueId] : state.used;
-      return { ...awarded, used, phase: { kind: "board" } };
+      const turnNext = action.markUsed && state.turnOrder?.length ? (state.turnNext ?? 0) + 1 : state.turnNext;
+      return { ...next, used, turnNext, phase: { kind: "board" } };
+    }
+    case "clue:skip": {
+      if (phase.kind !== "clue" || phase.resolvedBy) return state;
+      const finder = phase.dailyDouble?.teamId ?? (state.buzzMode !== "instant" ? phase.pickedBy : undefined);
+      const used = state.used.includes(phase.clueId) ? state.used : [...state.used, phase.clueId];
+      const next = lostDoubles(state);
+      return awardHiddenPower(
+        { ...next, used, phase: { ...phase, revealed: true, resolvedBy: "none" } },
+        board,
+        finder,
+        true,
+      );
+    }
+    case "settings:turn-order": {
+      const order = [...new Set(action.order)].filter((id) => state.teams.some((t) => t.id === id));
+      return { ...state, turnOrder: order, turnNext: 0 };
     }
     case "clue:unuse":
       return { ...state, used: state.used.filter((id) => id !== action.clueId) };
@@ -185,10 +242,11 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       if (dd && dd.teamId !== action.teamId) return state;
       if (!dd && isOut(phase, action.teamId)) return state;
       const team = action.teamId;
+      const answered = phase.answered?.includes(team) ? phase.answered : [...(phase.answered ?? []), team];
       const fx = dd ? undefined : phase.effects;
       if (fx && !action.correct && fx.second.includes(team)) {
         const effects = { ...fx, second: fx.second.filter((t) => t !== team), retried: [...fx.retried, team] };
-        return { ...state, phase: { ...phase, effects } };
+        return { ...state, phase: { ...phase, answered, effects } };
       }
       const amount = dd ? (dd.wager ?? 0) : found.value;
       const multiplier = fx?.doubled.includes(team) ? 2 : 1;
@@ -213,19 +271,18 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
         : state.buzzMode === "instant"
           ? action.correct ? team : undefined
           : (phase.pickedBy ?? (action.correct ? team : undefined));
-      let next: GameState;
       if (action.correct || dd || duelOver) {
         const used = state.used.includes(phase.clueId) ? state.used : [...state.used, phase.clueId];
-        next = {
+        const next = lostDoubles({
           ...state,
           teams,
           used,
           controlTeam: action.correct ? team : state.controlTeam,
-          phase: { ...phase, effects, revealed: true, resolvedBy: action.correct ? team : "none" },
-        };
-      } else {
-        next = { ...state, teams, phase: { ...phase, effects, lockedTeams: [...phase.lockedTeams, team] } };
+          phase: { ...phase, answered, effects, revealed: true, resolvedBy: action.correct ? team : "none" },
+        });
+        return awardHiddenPower(next, board, finder, true);
       }
+      const next = { ...state, teams, phase: { ...phase, answered, effects, lockedTeams: [...phase.lockedTeams, team] } };
       return awardHiddenPower(next, board, finder);
     }
 
@@ -272,6 +329,15 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
           answers: { ...phase.answers, [action.teamId]: { text: action.text.slice(0, 200), by: action.by } },
         },
       };
+    case "final:timer":
+      if (phase.kind !== "final" || phase.step !== "clue") return state;
+      return {
+        ...state,
+        phase: { ...phase, timerEndsAt: Date.now() + clamp(action.seconds, 1, 600) * 1000, timeUp: false },
+      };
+    case "final:time-up":
+      if (phase.kind !== "final" || phase.timeUp) return state;
+      return { ...state, phase: { ...phase, timeUp: true } };
     case "final:reveal":
       if (phase.kind !== "final" || phase.revealed.includes(action.teamId)) return state;
       return { ...state, phase: { ...phase, step: "reveal", revealed: [...phase.revealed, action.teamId] } };
@@ -365,16 +431,18 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
           const found = findClue(board, clueId);
           used.detail = `${target.name} must answer ${found?.category.title || "a category"} for $${(found?.value ?? 0).toLocaleString("en-US")}`;
           const fx = opened.phase.effects;
-          return {
-            ...opened,
-            powerNotice: used,
-            phase: {
-              ...opened.phase,
-              pickedBy: target.id,
-              forced: { teamId: target.id, by: teamId },
-              effects: fx && { ...fx, blocked: fx.blocked.filter((b) => b.teamId !== target.id) },
+          return withNotices(
+            {
+              ...opened,
+              phase: {
+                ...opened.phase,
+                pickedBy: target.id,
+                forced: { teamId: target.id, by: teamId },
+                effects: fx && { ...fx, blocked: fx.blocked.filter((b) => b.teamId !== target.id) },
+              },
             },
-          };
+            used,
+          );
         }
         const targeted = power === "block" || power === "duel";
         if (targeted && (!targetTeamId || targetTeamId === teamId || !state.teams.some((t) => t.id === targetTeamId))) {
@@ -390,12 +458,14 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
           ];
           if (d.playerName && d.targetPlayerName) used.detail = `${d.playerName} vs ${d.targetPlayerName}`;
         }
-        return {
-          ...state,
-          teams,
-          powerNotice: used,
-          queued: [...queued, { teamId, power, targetTeamId: targeted ? targetTeamId : undefined, duel }],
-        };
+        return withNotices(
+          {
+            ...state,
+            teams,
+            queued: [...queued, { teamId, power, targetTeamId: targeted ? targetTeamId : undefined, duel }],
+          },
+          used,
+        );
       }
       if (phase.kind !== "clue" || phase.resolvedBy || phase.dailyDouble || isOut(phase, teamId)) return state;
       const fx = phase.effects ?? NO_EFFECTS;
@@ -403,7 +473,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       if (power === "hint" && fx.hints.includes(teamId)) return state;
       const effects =
         power === "second" ? { ...fx, second: [...fx.second, teamId] } : { ...fx, hints: [...fx.hints, teamId] };
-      return { ...state, teams, powerNotice: used, phase: { ...phase, effects } };
+      return withNotices({ ...state, teams, phase: { ...phase, effects } }, used);
     }
 
     case "game:board":
@@ -418,6 +488,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
         phase: { kind: "board" },
         buzzMode: state.buzzMode,
         powerSettings: state.powerSettings,
+        turnOrder: state.turnOrder,
       };
   }
 }

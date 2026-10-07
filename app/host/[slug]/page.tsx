@@ -15,9 +15,10 @@ import { JoinPanel } from "@/components/host/JoinPanel";
 import { PlayBoard } from "@/components/host/PlayBoard";
 import { QuickfireView } from "@/components/host/QuickfireView";
 import { Scoreboard } from "@/components/host/Scoreboard";
+import { TurnOrderDialog } from "@/components/host/TurnOrderDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UnlockBoard } from "@/components/UnlockBoard";
-import { isOut } from "@/lib/gameReducer";
+import { isOut, turnTeam } from "@/lib/gameReducer";
 import { sounds } from "@/lib/sound";
 import type { GameAction } from "@/lib/types";
 import { useHostGame } from "@/lib/useHostGame";
@@ -28,6 +29,7 @@ export default function HostPage() {
   const { room, board, buzz, players, dispatch: rawDispatch } = game;
   const [showJoin, setShowJoin] = useState(true);
   const [powersOpen, setPowersOpen] = useState(false);
+  const [turnsOpen, setTurnsOpen] = useState(false);
   const [localCount, setLocalCount] = useState<number | undefined>();
   const [goFlash, setGoFlash] = useState(false);
   const localTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -113,6 +115,9 @@ export default function HostPage() {
   const quickfireTotal = board.quickfire?.questions.length ?? 0;
   const quickfireLeft = quickfireTotal - Math.min(room.state.quickfireNext ?? 0, quickfireTotal);
   const canFinal = !!board.finalJeopardy?.question;
+  const countdownMode = (room.state.buzzMode ?? "countdown") === "countdown";
+  const nextTurn = room.state.teams.find((t) => t.id === turnTeam(room.state));
+  const powersOn = room.state.powerSettings?.enabled.length ?? 0;
 
   return (
     <main className="flex h-dvh flex-col overflow-hidden">
@@ -143,6 +148,17 @@ export default function HostPage() {
           ))}
         </div>
         <BuzzModeToggle mode={room.state.buzzMode ?? "countdown"} dispatch={dispatch} />
+        {countdownMode && (
+          <button className="btn btn-ghost btn-sm" onClick={() => setTurnsOpen(true)} title="Set the order teams pick tiles in">
+            {nextTurn ? (
+              <>
+                Turn: <span style={{ color: nextTurn.color }}>{nextTurn.name}</span>
+              </>
+            ) : (
+              "Turn order"
+            )}
+          </button>
+        )}
         {live && (
           <button className="btn btn-ghost btn-sm" onClick={() => setShowJoin(!showJoin)}>
             {showJoin ? "Hide QR" : "Show QR"}
@@ -170,10 +186,14 @@ export default function HostPage() {
           End game
         </button>
         <button
-          className={`btn btn-sm ${room.state.powerSettings?.enabled.length ? "btn-primary" : "btn-ghost"}`}
+          className="btn btn-ghost btn-sm gap-2 !border-g-violet/80 hover:!border-g-violet"
           onClick={() => setPowersOpen(true)}
+          title="Choose power-ups and manage each team's"
         >
-          Power-ups
+          <span aria-hidden>⚡</span> Power-ups
+          {powersOn > 0 && (
+            <span className="bg-g-violet px-1.5 text-xs font-bold leading-5 text-white">{powersOn}</span>
+          )}
         </button>
         <Link href={`/b/${board.slug}?room=${encodeURIComponent(room.slug)}`} className="btn btn-ghost btn-sm">
           Edit board
@@ -270,7 +290,16 @@ export default function HostPage() {
           onClose={() => setPowersOpen(false)}
         />
       )}
-      <PowerNoticeToast notice={room.state.powerNotice} teams={room.state.teams} big />
+      {turnsOpen && (
+        <TurnOrderDialog
+          teams={room.state.teams}
+          order={room.state.turnOrder ?? []}
+          nextTeamId={nextTurn?.id}
+          dispatch={dispatch}
+          onClose={() => setTurnsOpen(false)}
+        />
+      )}
+      <PowerNoticeToast notices={room.state.powerNotices} teams={room.state.teams} big />
       <CountdownOverlay count={live ? (buzz.status === "countdown" ? buzz.count : undefined) : localCount} go={goFlash} />
     </main>
   );

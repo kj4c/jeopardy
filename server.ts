@@ -8,6 +8,7 @@ const { default: next } = await import("next");
 const { Server } = await import("socket.io");
 const { handleApi, serveUpload } = await import("./server/api");
 const { attachRooms } = await import("./server/rooms");
+const { DATA_DIR, countBoards } = await import("./server/db");
 
 const port = parseInt(process.env.PORT || "3000", 10);
 const dev = process.env.NODE_ENV !== "production";
@@ -33,4 +34,5 @@ httpServer.listen(port, () => {
     .map((i) => `http://${i!.address}:${port}`);
   console.log(`> Jeopardy ready on http://localhost:${port} (${dev ? "dev" : "production"})`);
   if (lan.length) console.log(`> Phones on the same Wi-Fi: ${lan.join("  ")}`);
+  console.log(`> Data in ${DATA_DIR} (${countBoards()} boards)`);
 });

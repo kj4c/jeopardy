@@ -331,6 +331,15 @@ body {
     opacity: 1;
   }
 }
+@keyframes mystery {
+  0%,
+  100% {
+    transform: rotate(-7deg) scale(1);
+  }
+  50% {
+    transform: rotate(7deg) scale(1.08);
+  }
+}
 @keyframes spin-slow {
   to {
     transform: rotate(360deg);

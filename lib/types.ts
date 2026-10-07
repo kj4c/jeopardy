@@ -104,11 +104,16 @@ export type PowerEffects = {
   duel?: [Duelist, Duelist];
 };
 
+/**
+ * Announcement on the big screen and phones.
+ * "found": a team won a tile's hidden power-up. "missed": nobody won the tile, so its hidden power-up went unclaimed
+ * (no team). "lost": a team's queued power-up was wasted because they never answered.
+ */
 export type PowerNotice = {
   id: string;
-  teamId: string;
+  teamId?: string;
   power: PowerType;
-  kind: "used" | "found";
+  kind: "used" | "found" | "missed" | "lost";
   targetTeamId?: string;
   detail?: string;
 };
@@ -127,8 +132,10 @@ export type CluePhase = {
   /** Random question power-up: `teamId` must answer first (no passing), in either buzz mode. */
   forced?: { teamId: string; by: string };
   effects?: PowerEffects;
-  /** Team that won this tile's hidden power-up. */
+  /** Team that won this tile's hidden power-up, or "none" once it went unclaimed. */
   powerFoundBy?: string;
+  /** Teams the host has judged on this clue. */
+  answered?: string[];
 };
 
 export type FinalStep = "wager" | "clue" | "reveal" | "done";
@@ -141,6 +148,10 @@ export type FinalPhase = {
   answers: Record<string, { text: string; by?: string }>;
   revealed: string[];
   judged: Record<string, boolean>;
+  /** Epoch ms when the answer timer runs out. */
+  timerEndsAt?: number;
+  /** Set when the timer runs out; phones can no longer submit. */
+  timeUp?: boolean;
 };
 
 export type QuickfirePhase = {
@@ -173,7 +184,12 @@ export type GameState = {
   quickfireNext?: number;
   powerSettings?: PowerSettings;
   queued?: QueuedPower[];
-  powerNotice?: PowerNotice;
+  /** Most recent announcements, oldest first. */
+  powerNotices?: PowerNotice[];
+  /** Countdown mode: teams pick tiles in this order instead of whoever answered last. */
+  turnOrder?: string[];
+  /** Position in `turnOrder` of the team that picks next. */
+  turnNext?: number;
 };
 
 export type RoomMode = "live" | "local";
@@ -231,7 +247,7 @@ export type PublicSnapshot = {
   buzz: BuzzState;
   powerSettings?: PowerSettings;
   queued: QueuedPower[];
-  powerNotice?: PowerNotice;
+  powerNotices: PowerNotice[];
   /** Team currently answering a regular clue, if any. */
   answeringTeam?: string;
   phase:
@@ -256,6 +272,9 @@ export type PublicSnapshot = {
         eligible: string[];
         wagers: Record<string, { by?: string; amount?: number }>;
         answers: Record<string, { by?: string }>;
+        /** Time left on the answer timer when this snapshot was sent, so phone clocks don't matter. */
+        timerLeftMs?: number;
+        timeUp?: boolean;
       }
     | {
         kind: "quickfire";
@@ -279,9 +298,14 @@ export type GameAction =
   | { type: "clue:question"; hidden: boolean }
   | { type: "clue:pick"; teamId: string | null }
   | { type: "clue:pass"; teamId: string }
+  /** Lets a locked-out team buzz and answer again. Points already lost stay lost. */
+  | { type: "clue:unlock"; teamId: string }
   | { type: "settings:buzz-mode"; mode: BuzzMode }
   | { type: "clue:close"; markUsed: boolean }
   | { type: "clue:judge"; teamId: string; correct: boolean }
+  /** Nobody (else) answers: ends the clue with no points. */
+  | { type: "clue:skip" }
+  | { type: "settings:turn-order"; order: string[] }
   | { type: "clue:unuse"; clueId: string }
   | { type: "dd:assign"; teamId: string }
   | { type: "dd:wager"; amount: number }
@@ -289,6 +313,8 @@ export type GameAction =
   | { type: "final:step"; step: FinalStep }
   | { type: "final:wager"; teamId: string; amount: number; by?: string }
   | { type: "final:answer"; teamId: string; text: string; by?: string }
+  | { type: "final:timer"; seconds: number }
+  | { type: "final:time-up" }
   | { type: "final:reveal"; teamId: string }
   | { type: "final:judge"; teamId: string; correct: boolean }
   | { type: "final:exit" }
