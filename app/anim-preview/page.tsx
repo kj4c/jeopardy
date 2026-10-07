@@ -23,6 +23,7 @@ const notices: Record<string, PowerNotice> = {
     rng: { category: "World Capitals", value: 600, categories: ["Science", "World Capitals", "Movies", "Food", "Sport"], values: [200, 400, 600, 800, 1000] },
   },
   hint: { id: "4", kind: "used", power: "hint", teamId: "c" },
+  second: { id: "10", kind: "used", power: "second", teamId: "a" },
   bet: { id: "5", kind: "used", power: "bet", teamId: "a" },
   duel: { id: "7", kind: "used", power: "duel", teamId: "a", targetTeamId: "c", duel: { name: "Jayden", targetName: "Jackie" } },
   settled: { id: "6", kind: "settled", power: "bet", teamId: "a", targetTeamId: "b", won: true, amount: 400 },

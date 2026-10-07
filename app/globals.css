@@ -364,35 +364,47 @@ body {
     transform: translateX(0);
   }
 }
-@keyframes block-throw {
-  0% {
-    transform: translate(-38vw, -45vh) rotate(-160deg) scale(0.5);
+@media (min-width: 1500px) {
+  .host-bar {
+    zoom: 1.2;
+  }
+}
+@media (min-width: 1900px) {
+  .host-bar {
+    zoom: 1.4;
+  }
+}
+@media (min-width: 2500px) {
+  .host-bar {
+    zoom: 1.75;
+  }
+}
+@media (min-width: 3400px) {
+  .host-bar {
+    zoom: 2.2;
+  }
+}
+
+@keyframes drop-down {
+  from {
+    transform: translateY(-10px);
+    clip-path: inset(0 0 100% 0);
     opacity: 0;
   }
-  15% {
-    opacity: 1;
-  }
-  70% {
-    transform: translate(0, 0) rotate(-6deg) scale(1.2);
-  }
-  85% {
-    transform: translate(0, 0) rotate(-4deg) scale(0.95);
-  }
-  100% {
-    transform: translate(0, 0) rotate(-4deg) scale(1);
+  to {
+    transform: translateY(0);
+    clip-path: inset(0 0 0 0);
     opacity: 1;
   }
 }
-@keyframes windup {
-  0%,
+@keyframes shush-pop {
+  0% {
+    transform: scale(0.2) rotate(-25deg);
+    opacity: 0;
+  }
   100% {
-    transform: translateX(0) rotate(0);
-  }
-  40% {
-    transform: translateX(-3vw) rotate(-4deg);
-  }
-  65% {
-    transform: translateX(2vw) rotate(3deg);
+    transform: scale(1) rotate(-4deg);
+    opacity: 1;
   }
 }
 @keyframes shake {
@@ -407,6 +419,56 @@ body {
   40%,
   80% {
     transform: translateX(12px);
+  }
+}
+@keyframes heart-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes heart-beat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+@keyframes one-up {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-120%);
+    opacity: 0;
+  }
+}
+@keyframes hint-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.8;
   }
 }
 @keyframes hint-glow {
@@ -463,10 +525,13 @@ body {
   50% {
     top: 5%;
   }
+  85% {
+    opacity: 1;
+  }
   100% {
     left: 82.5%;
     top: 50%;
-    opacity: 1;
+    opacity: 0;
   }
 }
 @keyframes chip-fly-left {
@@ -481,10 +546,13 @@ body {
   50% {
     top: 5%;
   }
+  85% {
+    opacity: 1;
+  }
   100% {
     left: 17.5%;
     top: 50%;
-    opacity: 1;
+    opacity: 0;
   }
 }
 @keyframes slam-left {
@@ -501,6 +569,60 @@ body {
   }
   to {
     transform: translateX(0);
+  }
+}
+@keyframes steal-carry {
+  0% {
+    transform: translate(28vw, 16vh) scale(0.6);
+    opacity: 0;
+  }
+  12% {
+    transform: translate(28vw, 16vh) scale(1.15);
+    opacity: 1;
+  }
+  20%,
+  45% {
+    transform: translate(28vw, 16vh) scale(1);
+  }
+  80%,
+  100% {
+    transform: translate(-28vw, 16vh) scale(1.1);
+    opacity: 1;
+  }
+}
+@keyframes ninja-swoop {
+  0% {
+    transform: translate(-60vw, -45vh) rotate(-40deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  40%,
+  45% {
+    transform: translate(15vw, 10vh) rotate(12deg);
+  }
+  80% {
+    transform: translate(-41vw, 10vh) rotate(-8deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-75vw, 0) rotate(-30deg);
+    opacity: 0;
+  }
+}
+@keyframes steal-dim {
+  to {
+    opacity: 0.35;
+    filter: grayscale(0.7);
+  }
+}
+@keyframes steal-win {
+  50% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 @keyframes vs-slam {

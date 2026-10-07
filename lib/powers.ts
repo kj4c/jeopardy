@@ -64,10 +64,10 @@ export const POWERS: Record<PowerType, PowerInfo> = {
   },
   second: {
     id: "second",
-    name: "Second answer",
-    icon: "🔁",
+    name: "Extra life",
+    icon: "❤️",
     timing: "answer",
-    description: "Answer twice. Lose points only if both answers are wrong.",
+    description: "Get it wrong and you can answer again. Lose points only if both answers are wrong.",
   },
   hint: {
     id: "hint",

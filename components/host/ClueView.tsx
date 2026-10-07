@@ -366,9 +366,9 @@ function PowerStrip({
   for (const b of fx?.blocked ?? []) {
     chips.push({ key: `k${b.teamId}`, team: teamName(b.teamId), text: `${POWERS.block.icon} blocked by ${teamName(b.by)?.name ?? "?"}` });
   }
-  for (const id of fx?.second ?? []) chips.push({ key: `s${id}`, team: teamName(id), text: `${POWERS.second.icon} gets two answers` });
+  for (const id of fx?.second ?? []) chips.push({ key: `s${id}`, team: teamName(id), text: `${POWERS.second.icon} has an extra life` });
   for (const id of fx?.retried ?? []) {
-    if (!resolved) chips.push({ key: `r${id}`, team: teamName(id), text: `${POWERS.second.icon} second answer!` });
+    if (!resolved) chips.push({ key: `r${id}`, team: teamName(id), text: `${POWERS.second.icon} used their extra life, answer again!` });
   }
   const hinted = (fx?.hints ?? []).map(teamName).filter(Boolean) as Team[];
   const duel = fx?.duel;

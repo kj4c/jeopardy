@@ -13,6 +13,7 @@ ENV PORT=3000
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
 COPY --from=build /app/server.ts /app/next.config.ts /app/tsconfig.json ./
 COPY --from=build /app/server ./server
 COPY --from=build /app/lib ./lib

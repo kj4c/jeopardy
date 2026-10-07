@@ -6,13 +6,13 @@ import { POWERS } from "@/lib/powers";
 import type { PowerNotice, PowerType, Team } from "@/lib/types";
 
 /** Power-ups with a full-screen animation when used; the rest get a toast. */
-export const ANIMATED_POWERS = new Set<PowerType>(["block", "double", "rng", "hint", "bet", "duel"]);
+export const ANIMATED_POWERS = new Set<PowerType>(["block", "double", "rng", "hint", "second", "bet", "duel"]);
 
 /** How long each animation stays up, in ms. */
 export function animationLength(n: PowerNotice): number {
   if (n.kind === "settled") return 3800;
   if (n.kind === "stolen") return 4400;
-  return { block: 3400, double: 2800, rng: 5600, hint: 3000, bet: 3400, duel: 3600 }[n.power as string] ?? 3000;
+  return { block: 3400, double: 2800, rng: 5600, hint: 3000, second: 3200, bet: 3400, duel: 3600 }[n.power as string] ?? 3000;
 }
 
 type Props = { notice: PowerNotice; teams: Team[]; big?: boolean; myTeamId?: string };
@@ -35,6 +35,8 @@ export function PowerAnimation({ notice, teams, big, myTeamId }: Props) {
       return <DoubleAnim team={team} big={big} name={name} />;
     case "rng":
       return notice.rng && target ? <RngAnim by={team} target={target} rng={notice.rng} big={big} name={name} /> : null;
+    case "second":
+      return <ExtraLifeAnim team={team} big={big} name={name} />;
     case "hint":
       return <HintAnim team={team} big={big} name={name} />;
     case "bet":
@@ -48,9 +50,9 @@ export function PowerAnimation({ notice, teams, big, myTeamId }: Props) {
 
 type Name = (t: Team) => string;
 
-function Stage({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+function Stage({ children, className = "", bg = "bg-ink/90" }: { children: React.ReactNode; className?: string; bg?: string }) {
   return (
-    <div className={`fixed inset-0 z-[60] flex flex-col items-center justify-center gap-[6vh] overflow-hidden bg-ink/90 px-6 backdrop-blur-sm ${className}`}>
+    <div className={`fixed inset-0 z-[60] flex flex-col items-center justify-center gap-[6vh] overflow-hidden px-6 backdrop-blur-sm ${bg} ${className}`}>
       {children}
     </div>
   );
@@ -71,41 +73,60 @@ function TeamName({ team, name }: { team: Team; name: Name }) {
   return <span style={{ color: team.color }}>{name(team)}</span>;
 }
 
-function TeamCard({ team, name, big, style }: { team: Team; name: Name; big?: boolean; style?: React.CSSProperties }) {
-  return (
-    <div
-      className={`flex items-center justify-center border-4 bg-ink text-center font-display leading-tight ${
-        big ? "h-[min(26vh,14rem)] w-[min(30vw,24rem)] text-[clamp(2rem,4vw,4rem)]" : "h-28 w-36 text-2xl"
-      }`}
-      style={{ borderColor: team.color, boxShadow: `0 0 50px -10px ${team.color}`, color: team.color, ...style }}
-    >
-      <span className="px-3">{name(team)}</span>
-    </div>
-  );
-}
-
 function BlockAnim({ by, target, big, name }: { by: Team; target: Team; big?: boolean; name: Name }) {
+  const teamText = `font-display font-black italic leading-none ${big ? "text-[clamp(2.5rem,6vw,6.5rem)]" : "text-4xl"}`;
   return (
-    <Stage>
-      <div className="flex items-center justify-center gap-[10vw]">
-        <TeamCard team={by} name={name} big={big} style={{ animation: "windup 0.6s ease both" }} />
-        <div className="relative">
-          <TeamCard team={target} name={name} big={big} style={{ animation: "shake 0.45s ease 0.75s both" }} />
-          <div
-            className="absolute -inset-3 flex items-center justify-center border-4 border-ink font-display font-black tracking-wider text-ink"
-            style={{
-              background: "repeating-linear-gradient(45deg, #f5a14a 0 22px, #1a1410 22px 44px)",
-              animation: "block-throw 0.85s cubic-bezier(0.3, 0.7, 0.4, 1) both",
-            }}
+    <div className="fixed inset-0 z-[60] overflow-hidden bg-ink">
+      <div
+        className="absolute inset-0"
+        style={{
+          background: `radial-gradient(ellipse 45% 60% at 20% 50%, ${by.color}88 0%, transparent 70%), radial-gradient(ellipse 45% 60% at 80% 50%, ${target.color}88 0%, transparent 70%)`,
+        }}
+      />
+      <p className={`label animate-pop absolute inset-x-0 top-[14%] text-center ${big ? "!text-xl" : ""}`}>
+        {POWERS.block.icon} Block
+      </p>
+      <p
+        className={`${teamText} absolute left-[5%] top-1/2 max-w-[30%] -translate-y-1/2`}
+        style={{ color: by.color, textShadow: `0 0 40px ${by.color}99`, animation: "steal-win 0.5s ease 0.75s both" }}
+      >
+        {name(by)}
+      </p>
+      <div className="absolute right-[5%] top-1/2 max-w-[30%] -translate-y-1/2">
+        <p
+          className={`${teamText} text-right`}
+          style={{ color: target.color, textShadow: `0 0 40px ${target.color}99`, animation: "shake 0.45s ease 0.6s both, steal-dim 0.6s ease 0.8s both" }}
+        >
+          {name(target)}
+        </p>
+      </div>
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+        <div className="relative" style={{ animation: "shush-pop 0.55s cubic-bezier(0.3, 1.5, 0.5, 1) 0.15s both" }}>
+          <img
+            src="/powers/shush.png"
+            alt=""
+            className={`aspect-square rounded-2xl object-cover ${big ? "h-[min(40vh,26vw)]" : "h-[min(30vh,32vw)]"}`}
+            style={{ boxShadow: `0 20px 60px -10px rgba(0,0,0,0.7), 0 0 0 3px ${by.color}, 0 0 60px -5px ${by.color}` }}
+          />
+          <span
+            className={`font-display absolute -bottom-[0.45em] left-1/2 -translate-x-1/2 -rotate-6 whitespace-nowrap rounded-full bg-cream px-[0.6em] py-[0.1em] font-black italic text-ink ${
+              big ? "text-[clamp(1.8rem,3.5vw,3.2rem)]" : "text-2xl"
+            }`}
+            style={{ animation: "vs-slam 0.4s cubic-bezier(0.3, 1.4, 0.5, 1) 0.6s both" }}
           >
-            <span className={`bg-[#f5a14a] px-3 py-1 ${big ? "text-[clamp(1.6rem,3vw,3rem)]" : "text-xl"}`}>⛔ BLOCKED</span>
-          </div>
+            SHHH 🤫
+          </span>
         </div>
       </div>
-      <Caption big={big} delay={900}>
-        <TeamName team={by} name={name} /> blocked <TeamName team={target} name={name} />!
-      </Caption>
-    </Stage>
+      <p
+        className={`font-display animate-pop absolute inset-x-0 bottom-[12%] px-6 text-center leading-tight ${
+          big ? "text-[clamp(2rem,4vw,4rem)]" : "text-2xl"
+        }`}
+        style={{ animationDelay: "1000ms" }}
+      >
+        <TeamName team={by} name={name} /> blocked <TeamName team={target} name={name} /> from buzzing
+      </p>
+    </div>
   );
 }
 
@@ -185,17 +206,15 @@ function RngAnim({
 }) {
   const category = useRoulette(rng.categories, rng.category, 300);
   const value = useRoulette(rng.values, rng.value, 2300, 18);
-  const reel = `relative flex items-center justify-center overflow-hidden border-4 bg-ink ${big ? "h-[min(20vh,10rem)]" : "h-24"}`;
+  const reel = `relative flex items-center justify-center overflow-hidden ${big ? "h-[min(20vh,10rem)]" : "h-24"}`;
+  const glow = { textShadow: "0 4px 30px rgba(0,0,0,0.6)" };
   return (
-    <Stage>
-      <p className={`label ${big ? "!text-xl" : ""}`}>
+    <Stage bg="bg-black/55">
+      <p className={`label !text-cream/85 ${big ? "!text-xl" : ""}`} style={glow}>
         {POWERS.rng.icon} <TeamName team={by} name={name} /> sent <TeamName team={target} name={name} /> a random question
       </p>
-      <div className={`flex w-full max-w-5xl flex-col items-center gap-6 ${big ? "" : "px-2"}`}>
-        <div
-          className={`${reel} w-full`}
-          style={{ borderColor: category.state === "done" ? "var(--color-coral)" : "var(--color-line-strong)" }}
-        >
+      <div className={`flex w-full max-w-5xl flex-col items-center gap-2 ${big ? "" : "px-2"}`} style={glow}>
+        <div className={`${reel} w-full`}>
           <span
             key={category.value + category.state}
             className={`font-display px-6 text-center leading-tight ${big ? "text-[clamp(2rem,5vw,5rem)]" : "text-3xl"} ${
@@ -206,19 +225,9 @@ function RngAnim({
             {category.value}
           </span>
         </div>
-        <div className="flex items-center gap-4">
-          {[0, 1, 2].map((i) => (
-            <span key={i} className={`${big ? "text-5xl" : "text-3xl"} ${value.state === "spinning" ? "animate-pulse" : ""}`}>
-              🎰
-            </span>
-          ))}
-        </div>
         <div
           className={`${reel} ${big ? "w-[min(40vw,28rem)]" : "w-56"} transition-opacity`}
-          style={{
-            borderColor: value.state === "done" ? "#f5a14a" : "var(--color-line-strong)",
-            opacity: value.state === "waiting" ? 0.3 : 1,
-          }}
+          style={{ opacity: value.state === "waiting" ? 0.3 : 1 }}
         >
           <span
             key={String(value.value) + value.state}
@@ -242,35 +251,85 @@ function RngAnim({
   );
 }
 
+const HEART = [".XX...XX.", "XXXX.XXXX", "XXXXXXXXX", "XXXXXXXXX", ".XXXXXXX.", "..XXXXX..", "...XXX...", "....X...."];
+const HEART_SHINE = new Set(["1,1", "2,1", "1,2"]);
+
+function PixelHeart({ className = "", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg viewBox="0 0 9 8" shapeRendering="crispEdges" className={className} style={style} aria-hidden>
+      {HEART.flatMap((row, y) =>
+        [...row].map((c, x) =>
+          c === "X" ? <rect key={`${x},${y}`} x={x} y={y} width={1.02} height={1.02} fill={HEART_SHINE.has(`${x},${y}`) ? "#ffd6de" : "#ff2e55"} /> : null,
+        ),
+      )}
+    </svg>
+  );
+}
+
+function ExtraLifeAnim({ team, big, name }: { team: Team; big?: boolean; name: Name }) {
+  const size = big ? "w-[min(18vw,11rem)]" : "w-24";
+  const heart = { filter: "drop-shadow(0 0 18px rgba(255,46,85,0.65))" };
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[60] flex flex-col items-center justify-center gap-[4vh] overflow-hidden px-6">
+      <div
+        className="absolute left-1/2 top-1/2 -ml-[40vmin] -mt-[30vmin] h-[60vmin] w-[80vmin]"
+        style={{ background: "radial-gradient(ellipse closest-side, rgba(14,10,8,0.85) 35%, rgba(14,10,8,0) 100%)" }}
+      />
+      <div className="relative flex items-end gap-[3vw]">
+        <div style={{ animation: "heart-in 0.4s steps(4) both" }}>
+          <PixelHeart className={size} style={{ ...heart, animation: "heart-beat 0.8s steps(2) 1.4s infinite" }} />
+        </div>
+        <div className="relative" style={{ animation: "heart-in 0.5s steps(5) 0.8s both" }}>
+          <PixelHeart className={size} style={{ ...heart, animation: "heart-beat 0.8s steps(2) 1.4s infinite" }} />
+          <span
+            className={`absolute inset-x-0 -top-[0.2em] text-center font-mono font-bold text-[#7dff8a] ${big ? "text-[clamp(1.5rem,3vw,3rem)]" : "text-xl"}`}
+            style={{ textShadow: "0 0 12px rgba(125,255,138,0.7)", animation: "one-up 1.2s steps(8) 1s both" }}
+          >
+            +1 UP
+          </span>
+        </div>
+      </div>
+      <p
+        className={`font-display animate-pop relative text-center leading-tight text-cream ${big ? "text-[clamp(2.5rem,5vw,5rem)]" : "text-3xl"}`}
+        style={{ animationDelay: "1100ms", textShadow: "0 2px 18px rgba(0,0,0,0.85)" }}
+      >
+        <TeamName team={team} name={name} /> got an extra life!
+      </p>
+    </div>
+  );
+}
+
 function HintAnim({ team, big, name }: { team: Team; big?: boolean; name: Name }) {
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-[5vh] overflow-hidden bg-ink px-6">
-      <div className="absolute left-1/2 top-[42%] h-[260vmax] w-[260vmax] -translate-x-1/2 -translate-y-1/2">
+    <div className="pointer-events-none fixed inset-0 z-[60] flex flex-col items-center justify-center gap-[3vh] overflow-hidden px-6">
+      <div
+        className={`absolute left-1/2 top-[42%] rounded-full ${big ? "-ml-[35vmin] -mt-[35vmin] h-[70vmin] w-[70vmin]" : "-ml-[30vmin] -mt-[30vmin] h-[60vmin] w-[60vmin]"}`}
+        style={{ animation: "hint-glow 1s ease-out 0.4s both" }}
+      >
         <div
-          className="h-full w-full opacity-40"
+          className="h-full w-full rounded-full"
           style={{
-            background: "repeating-conic-gradient(from 0deg, #ffd75e 0deg 6deg, transparent 6deg 18deg)",
-            animation: "spin-slow 14s linear infinite",
+            background:
+              "radial-gradient(circle, rgba(255,246,201,0.95) 0%, rgba(255,215,94,0.7) 18%, rgba(255,184,0,0.3) 42%, rgba(255,184,0,0) 70%)",
+            animation: "hint-pulse 1.6s ease-in-out 1.4s infinite",
           }}
         />
       </div>
-      <div
-        className="absolute left-1/2 top-[42%] h-[220vmax] w-[220vmax] -ml-[110vmax] -mt-[110vmax] rounded-full"
-        style={{
-          background: "radial-gradient(circle, #fff6c9 0%, #ffd75e 12%, rgba(255,184,0,0.55) 30%, rgba(255,184,0,0) 55%)",
-          animation: "hint-glow 1.4s ease-out 0.5s both",
-        }}
-      />
-      <span className={`relative ${big ? "text-[min(30vh,16rem)]" : "text-[min(28vh,9rem)]"}`} style={{ animation: "flicker 0.9s ease both" }}>
+      <span
+        className={`relative ${big ? "text-[min(26vh,14rem)]" : "text-[min(22vh,8rem)]"}`}
+        style={{ animation: "flicker 0.9s ease both", filter: "drop-shadow(0 0 30px rgba(255,215,94,0.9))" }}
+      >
         💡
       </span>
       <p
-        className={`font-display animate-pop relative text-center leading-tight text-[#1a1208] ${big ? "text-[clamp(2.5rem,5vw,5rem)]" : "text-3xl"}`}
-        style={{ animationDelay: "900ms" }}
+        className={`font-display animate-pop relative text-center leading-tight text-cream ${big ? "text-[clamp(2.5rem,5vw,5rem)]" : "text-3xl"}`}
+        style={{ animationDelay: "900ms", textShadow: "0 2px 18px rgba(0,0,0,0.85), 0 0 4px rgba(0,0,0,0.6)" }}
       >
-        <span className="bg-[#fff6c9]/70 px-4 py-1">
-          <span style={{ color: team.color, filter: "brightness(0.75)" }}>{name(team)}</span> used Hint!
-        </span>
+        <span
+          className="absolute -inset-x-[15%] -inset-y-[60%] -z-10"
+          style={{ background: "radial-gradient(ellipse closest-side, rgba(14,10,8,0.8) 40%, rgba(14,10,8,0) 100%)" }}
+        />
+        <span style={{ color: team.color }}>{name(team)}</span> used Hint!
       </p>
     </div>
   );
@@ -342,39 +401,59 @@ function DuelAnim({
 
 function StealAnim({ thief, target, amount, big, name }: { thief: Team; target: Team; amount: number; big?: boolean; name: Name }) {
   const gain = amount > 0;
+  const money = `${gain ? "+" : "−"}${formatScore(Math.abs(amount))}`;
+  const teamText = `font-display font-black italic leading-none ${big ? "text-[clamp(2.5rem,6vw,6.5rem)]" : "text-4xl"}`;
   return (
-    <Stage>
-      <p className={`label animate-pop ${big ? "!text-xl" : ""}`}>{POWERS.steal.icon} Secret Steal!</p>
-      <div className={`relative flex w-[min(92vw,64rem)] items-center justify-between ${big ? "h-[min(30vh,16rem)]" : "h-36"}`}>
-        <TeamCard
-          team={thief}
-          name={name}
-          big={big}
-          style={{ animation: "slam-left 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) 0.5s both" }}
-        />
-        <div className="relative">
-          <TeamCard team={target} name={name} big={big} style={{ animation: "shake 0.45s ease 1.1s both" }} />
+    <div className="fixed inset-0 z-[60] overflow-hidden bg-ink">
+      <div
+        className="absolute inset-0"
+        style={{
+          background: `radial-gradient(ellipse 45% 60% at 20% 50%, ${thief.color}88 0%, transparent 70%), radial-gradient(ellipse 45% 60% at 80% 50%, ${target.color}88 0%, transparent 70%)`,
+        }}
+      />
+      <p className={`label animate-pop absolute inset-x-0 top-[14%] text-center ${big ? "!text-xl" : ""}`}>
+        {POWERS.steal.icon} Secret Steal!
+      </p>
+      <p
+        className={`${teamText} absolute left-[6%] top-1/2 max-w-[38%] -translate-y-1/2`}
+        style={{ color: thief.color, textShadow: `0 0 40px ${thief.color}99`, animation: "steal-win 0.5s ease 1.9s both" }}
+      >
+        {name(thief)}
+      </p>
+      <p
+        className={`${teamText} absolute right-[6%] top-1/2 max-w-[38%] -translate-y-1/2 text-right`}
+        style={{ color: target.color, textShadow: `0 0 40px ${target.color}99`, animation: "steal-dim 0.6s ease 1.4s both" }}
+      >
+        {name(target)}
+      </p>
+      <div className="absolute left-1/2 top-1/2">
+        <div style={{ animation: "steal-carry 2.2s cubic-bezier(0.6, 0, 0.3, 1) 0.2s both" }}>
           <span
-            className={`font-display animate-pop absolute -top-[0.9em] right-0 ${big ? "text-[clamp(2rem,4vw,3.5rem)]" : "text-2xl"} ${
+            className={`font-display block -translate-x-1/2 -translate-y-1/2 whitespace-nowrap ${big ? "text-[clamp(3rem,6vw,6rem)]" : "text-5xl"} ${
               gain ? "text-good" : "text-bad"
             }`}
+            style={{ textShadow: "0 4px 30px rgba(0,0,0,0.5)" }}
           >
-            {gain ? "+" : "−"}
-            {formatScore(Math.abs(amount))}
+            {money}
           </span>
         </div>
-        <Chips direction="left" delay={0.9} />
+        <div style={{ animation: "ninja-swoop 2.2s cubic-bezier(0.6, 0, 0.3, 1) 0.2s both" }}>
+          <span className={`block -translate-x-1/2 -translate-y-1/2 ${big ? "text-[min(16vh,8rem)]" : "text-6xl"}`}>
+            {POWERS.steal.icon}
+          </span>
+        </div>
       </div>
-      <Caption big={big} delay={1700}>
+      <p
+        className={`font-display animate-pop absolute inset-x-0 bottom-[12%] px-6 text-center leading-tight ${
+          big ? "text-[clamp(2rem,4vw,4rem)]" : "text-2xl"
+        }`}
+        style={{ animationDelay: "2300ms" }}
+      >
         <TeamName team={thief} name={name} /> {gain ? "stole" : "took"} <TeamName team={target} name={name} />
-        &apos;s{" "}
-        <span className={gain ? "text-good" : "text-bad"}>
-          {gain ? "+" : "−"}
-          {formatScore(Math.abs(amount))}
-        </span>
+        &apos;s <span className={gain ? "text-good" : "text-bad"}>{money}</span>
         {!gain && " 😬"}
-      </Caption>
-    </Stage>
+      </p>
+    </div>
   );
 }
 
@@ -384,14 +463,78 @@ function Chips({ direction, count = 6, delay = 0.5 }: { direction: "right" | "le
       {Array.from({ length: count }).map((_, i) => (
         <span
           key={i}
-          className="absolute h-[clamp(1.6rem,3.5vw,3rem)] w-[clamp(1.6rem,3.5vw,3rem)] -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-dashed border-white"
+          className="absolute h-[clamp(1.4rem,3vw,2.6rem)] w-[clamp(1.4rem,3vw,2.6rem)] -translate-x-1/2 -translate-y-1/2 rounded-full"
           style={{
-            background: ["#ff4f9a", "#f5a14a", "#3b6bff", "#22d3a6"][i % 4],
+            background: `radial-gradient(circle, ${["#ff4f9a", "#f5a14a", "#7a4fe0", "#22d3a6"][i % 4]} 45%, rgba(255,255,255,0.9) 47% 55%, ${
+              ["#ff4f9a", "#f5a14a", "#7a4fe0", "#22d3a6"][i % 4]
+            } 57%)`,
+            boxShadow: "0 6px 18px rgba(0,0,0,0.45)",
             animation: `chip-fly-${direction} 0.75s cubic-bezier(0.4, 0, 0.3, 1) ${delay + i * 0.12}s both`,
           }}
         />
       ))}
     </>
+  );
+}
+
+/** Two sides glowing in their team colours, with big names and a caption underneath. */
+function Duo({
+  left,
+  right,
+  leftName,
+  rightName,
+  leftStyle,
+  rightStyle,
+  label,
+  caption,
+  captionDelay,
+  big,
+  children,
+}: {
+  left: string;
+  right: string;
+  leftName: React.ReactNode;
+  rightName: React.ReactNode;
+  leftStyle?: React.CSSProperties;
+  rightStyle?: React.CSSProperties;
+  label: React.ReactNode;
+  caption: React.ReactNode;
+  captionDelay: number;
+  big?: boolean;
+  children?: React.ReactNode;
+}) {
+  const teamText = `font-display font-black italic leading-none ${big ? "text-[clamp(2.5rem,6vw,6.5rem)]" : "text-4xl"}`;
+  return (
+    <div className="fixed inset-0 z-[60] overflow-hidden bg-ink">
+      <div
+        className="absolute inset-0 transition-[background] duration-200"
+        style={{
+          background: `radial-gradient(ellipse 45% 60% at 20% 50%, ${left}88 0%, transparent 70%), radial-gradient(ellipse 45% 60% at 80% 50%, ${right}88 0%, transparent 70%)`,
+        }}
+      />
+      <p className={`label animate-pop absolute inset-x-0 top-[14%] text-center ${big ? "!text-xl" : ""}`}>{label}</p>
+      <div
+        className={`${teamText} absolute left-[6%] top-1/2 max-w-[38%] -translate-y-1/2`}
+        style={{ color: left, textShadow: `0 0 40px ${left}99`, ...leftStyle }}
+      >
+        {leftName}
+      </div>
+      <div
+        className={`${teamText} absolute right-[6%] top-1/2 max-w-[38%] -translate-y-1/2 text-right`}
+        style={{ color: right, textShadow: `0 0 40px ${right}99`, ...rightStyle }}
+      >
+        {rightName}
+      </div>
+      {children}
+      <p
+        className={`font-display animate-pop absolute inset-x-0 bottom-[12%] px-6 text-center leading-tight ${
+          big ? "text-[clamp(2rem,4vw,4rem)]" : "text-2xl"
+        }`}
+        style={{ animationDelay: `${captionDelay}ms` }}
+      >
+        {caption}
+      </p>
+    </div>
   );
 }
 
@@ -404,28 +547,39 @@ function BetAnim({ by, others, big, name }: { by: Team; others: Team[]; big?: bo
   }, [others.length]);
   const mark = others[i % Math.max(others.length, 1)];
   return (
-    <Stage>
-      <div className={`relative flex w-[min(92vw,64rem)] items-center justify-between ${big ? "h-[min(30vh,16rem)]" : "h-36"}`}>
-        <TeamCard team={by} name={name} big={big} />
-        <Chips direction="right" />
-        <div
-          className={`flex flex-col items-center justify-center border-4 border-dashed bg-ink text-center ${
-            big ? "h-[min(26vh,14rem)] w-[min(30vw,24rem)]" : "h-28 w-36"
-          }`}
-          style={{ borderColor: mark?.color ?? "var(--color-line-strong)" }}
-        >
-          <span className={`font-display ${big ? "text-6xl" : "text-3xl"}`}>?</span>
+    <Duo
+      big={big}
+      left={by.color}
+      right={mark?.color ?? "#c2b6ae"}
+      leftName={name(by)}
+      rightName={
+        <span className="flex flex-col items-end">
+          <span className={big ? "text-[clamp(4rem,9vw,9rem)]" : "text-6xl"}>?</span>
           {mark && (
-            <span key={mark.id} className={`font-display animate-pop ${big ? "text-3xl" : "text-lg"}`} style={{ color: mark.color }}>
+            <span key={mark.id} className={`animate-pop not-italic ${big ? "text-[clamp(1.4rem,2.5vw,2.5rem)]" : "text-lg"}`}>
               {name(mark)}
             </span>
           )}
-        </div>
-      </div>
-      <Caption big={big} delay={600}>
-        {POWERS.bet.icon} <TeamName team={by} name={name} /> bets against whoever answers next
-      </Caption>
-    </Stage>
+        </span>
+      }
+      label={`${POWERS.bet.icon} Bet against`}
+      caption={
+        <>
+          <TeamName team={by} name={name} /> bets against whoever answers next
+        </>
+      }
+      captionDelay={600}
+    >
+      <ChipLane direction="right" />
+    </Duo>
+  );
+}
+
+function ChipLane({ direction, delay }: { direction: "right" | "left"; delay?: number }) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-[38%] h-[24%]">
+      <Chips direction={direction} delay={delay} />
+    </div>
   );
 }
 
@@ -444,22 +598,30 @@ function BetResult({
   big?: boolean;
   name: Name;
 }) {
+  const loser = { animation: "shake 0.45s ease 1.4s both, steal-dim 0.6s ease 1.6s both" };
+  const winner = { animation: "steal-win 0.5s ease 1.5s both" };
   return (
-    <Stage>
-      <p className={`label ${big ? "!text-xl" : ""}`}>{POWERS.bet.icon} Bet against</p>
-      <div className={`relative flex w-[min(92vw,64rem)] items-center justify-between ${big ? "h-[min(30vh,16rem)]" : "h-36"}`}>
-        <TeamCard team={by} name={name} big={big} style={won ? undefined : { animation: "shake 0.45s ease 1.4s both" }} />
-        <span className={`font-display text-muted ${big ? "text-5xl" : "text-2xl"}`}>vs</span>
-        <TeamCard team={target} name={name} big={big} style={won ? { animation: "shake 0.45s ease 1.4s both" } : undefined} />
-        <Chips direction={won ? "left" : "right"} />
-      </div>
-      <Caption big={big} delay={1300}>
-        <TeamName team={by} name={name} /> {won ? "won" : "lost"} their bet against <TeamName team={target} name={name} />{" "}
-        <span className={won ? "text-good" : "text-bad"}>
-          {won ? "+" : "−"}
-          {formatScore(amount)}
-        </span>
-      </Caption>
-    </Stage>
+    <Duo
+      big={big}
+      left={by.color}
+      right={target.color}
+      leftName={name(by)}
+      rightName={name(target)}
+      leftStyle={won ? winner : loser}
+      rightStyle={won ? loser : winner}
+      label={`${POWERS.bet.icon} Bet against`}
+      caption={
+        <>
+          <TeamName team={by} name={name} /> {won ? "won" : "lost"} their bet against <TeamName team={target} name={name} />{" "}
+          <span className={won ? "text-good" : "text-bad"}>
+            {won ? "+" : "−"}
+            {formatScore(amount)}
+          </span>
+        </>
+      }
+      captionDelay={1300}
+    >
+      <ChipLane direction={won ? "left" : "right"} />
+    </Duo>
   );
 }

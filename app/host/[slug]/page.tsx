@@ -18,10 +18,13 @@ import { Scoreboard } from "@/components/host/Scoreboard";
 import { TurnOrderDialog } from "@/components/host/TurnOrderDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UnlockBoard } from "@/components/UnlockBoard";
+import { MusicControl } from "@/components/host/MusicControl";
+import { findClue } from "@/lib/board";
 import { isOut, turnTeam } from "@/lib/gameReducer";
 import { sounds } from "@/lib/sound";
 import type { GameAction } from "@/lib/types";
 import { useHostGame } from "@/lib/useHostGame";
+import { useMusic } from "@/lib/useMusic";
 
 export default function HostPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -30,6 +33,22 @@ export default function HostPage() {
   const [showJoin, setShowJoin] = useState(true);
   const [powersOpen, setPowersOpen] = useState(false);
   const [turnsOpen, setTurnsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const close = (e: PointerEvent) => {
+      if (!headerRef.current?.contains(e.target as Node)) setSettingsOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setSettingsOpen(false);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [settingsOpen]);
   const [localCount, setLocalCount] = useState<number | undefined>();
   const [goFlash, setGoFlash] = useState(false);
   const localTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -75,6 +94,15 @@ export default function HostPage() {
   useEffect(() => {
     if (ddClueId) sounds.dailyDouble();
   }, [ddClueId]);
+
+  const openClue = phase?.kind === "clue" && board ? findClue(board, phase.clueId)?.clue : undefined;
+  const videoPlaying =
+    phase?.kind === "clue" &&
+    (openClue?.media?.type === "youtube" || (phase.revealed && openClue?.answerMedia?.type === "youtube"));
+  const music = useMusic(
+    phase?.kind === "final" || phase?.kind === "quickfire" ? "countdown" : "lobby",
+    videoPlaying ? 0 : phase?.kind === "clue" ? 0.35 : 1,
+  );
 
   if (game.status === "loading") return <main className="min-h-dvh"><GradientBackground /></main>;
   if (game.status === "locked" && game.lockedBoard) {
@@ -123,7 +151,7 @@ export default function HostPage() {
     <main className="flex h-dvh flex-col overflow-hidden">
       <GradientBackground accent={accent} variant={phase.kind === "board" ? "subtle" : "hero"} />
 
-      <header className="flex flex-wrap items-center gap-3 border-b border-line bg-ink/60 px-4 py-2.5 backdrop-blur-md">
+      <header ref={headerRef} className="host-bar relative z-40 flex flex-wrap items-center gap-3 border-b border-line bg-ink/60 px-4 py-2.5 backdrop-blur-md">
         <Link href="/boards" className="btn btn-ghost btn-sm">
           ←
         </Link>
@@ -136,34 +164,6 @@ export default function HostPage() {
             {game.saveError && <span className="!text-bad"> · not saved</span>}
           </p>
         </div>
-        <div className="flex border border-line-strong text-sm">
-          {(["live", "local"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => m !== room.mode && game.setMode(m)}
-              className={`px-3 py-1.5 transition ${room.mode === m ? "bg-coral/20 text-cream" : "text-muted hover:text-cream"}`}
-            >
-              {m === "live" ? "Live room" : "In person"}
-            </button>
-          ))}
-        </div>
-        <BuzzModeToggle mode={room.state.buzzMode ?? "countdown"} dispatch={dispatch} />
-        {countdownMode && (
-          <button className="btn btn-ghost btn-sm" onClick={() => setTurnsOpen(true)} title="Set the order teams pick tiles in">
-            {nextTurn ? (
-              <>
-                Turn: <span style={{ color: nextTurn.color }}>{nextTurn.name}</span>
-              </>
-            ) : (
-              "Turn order"
-            )}
-          </button>
-        )}
-        {live && (
-          <button className="btn btn-ghost btn-sm" onClick={() => setShowJoin(!showJoin)}>
-            {showJoin ? "Hide QR" : "Show QR"}
-          </button>
-        )}
         {quickfireTotal > 0 && (
           <button
             className="btn btn-ghost btn-sm"
@@ -195,16 +195,17 @@ export default function HostPage() {
             <span className="bg-g-violet px-1.5 text-xs font-bold leading-5 text-white">{powersOn}</span>
           )}
         </button>
-        <Link href={`/b/${board.slug}?room=${encodeURIComponent(room.slug)}`} className="btn btn-ghost btn-sm">
-          Edit board
-        </Link>
         <button
-          className="btn btn-ghost btn-sm"
-          onClick={() => confirm("Reset all scores and tiles?") && dispatch({ type: "game:reset" })}
+          className={`btn btn-ghost btn-sm relative ${settingsOpen ? "!border-coral text-cream" : ""}`}
+          onClick={() => setSettingsOpen(!settingsOpen)}
+          title={music.blocked ? "Settings · click anywhere to start the music" : "Settings"}
+          aria-expanded={settingsOpen}
         >
-          Reset
+          <span className={`inline-block text-base leading-none transition-transform duration-300 ${settingsOpen ? "rotate-90" : ""}`}>
+            ⚙
+          </span>
+          {music.blocked && <span className="absolute -right-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-coral" />}
         </button>
-        <ThemeToggle />
         <button
           className="btn btn-ghost btn-sm"
           onClick={() =>
@@ -214,6 +215,72 @@ export default function HostPage() {
         >
           ⛶
         </button>
+
+        {settingsOpen && (
+          <div
+            className="absolute inset-x-0 top-full border-b border-line bg-surface shadow-[0_24px_48px_-20px_rgba(0,0,0,0.6)]"
+            style={{ animation: "drop-down 0.25s cubic-bezier(0.2, 0.9, 0.3, 1) both" }}
+          >
+            <div className="flex flex-wrap items-start gap-x-8 gap-y-4 px-4 py-4">
+              <Setting label="Room">
+                <div className="flex border border-line-strong text-sm">
+                  {(["live", "local"] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => m !== room.mode && game.setMode(m)}
+                      className={`px-3 py-1.5 transition ${room.mode === m ? "bg-coral/20 text-cream" : "text-muted hover:text-cream"}`}
+                    >
+                      {m === "live" ? "Live room" : "In person"}
+                    </button>
+                  ))}
+                </div>
+                {live && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => setShowJoin(!showJoin)}>
+                    {showJoin ? "Hide QR" : "Show QR"}
+                  </button>
+                )}
+              </Setting>
+              <Setting label="Buzzers">
+                <BuzzModeToggle mode={room.state.buzzMode ?? "countdown"} dispatch={dispatch} />
+                {countdownMode && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => (setTurnsOpen(true), setSettingsOpen(false))} title="Set the order teams pick tiles in">
+                    {nextTurn ? (
+                      <>
+                        Turn: <span style={{ color: nextTurn.color }}>{nextTurn.name}</span>
+                      </>
+                    ) : (
+                      "Turn order"
+                    )}
+                  </button>
+                )}
+              </Setting>
+              <Setting label="Music">
+                <MusicControl
+                  lobby={music.lobby}
+                  muted={music.muted}
+                  volume={music.volume}
+                  onLobby={music.setLobby}
+                  onMute={music.setMuted}
+                  onVolume={music.setVolume}
+                />
+              </Setting>
+              <Setting label="Theme">
+                <ThemeToggle />
+              </Setting>
+              <Setting label="Board">
+                <Link href={`/b/${board.slug}?room=${encodeURIComponent(room.slug)}`} className="btn btn-ghost btn-sm">
+                  Edit board
+                </Link>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => confirm("Reset all scores and tiles?") && dispatch({ type: "game:reset" })}
+                >
+                  Reset game
+                </button>
+              </Setting>
+            </div>
+          </div>
+        )}
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -302,5 +369,14 @@ export default function HostPage() {
       <PowerNoticeToast notices={room.state.powerNotices} teams={room.state.teams} big />
       <CountdownOverlay count={live ? (buzz.status === "countdown" ? buzz.count : undefined) : localCount} go={goFlash} />
     </main>
+  );
+}
+
+function Setting({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="label">{label}</p>
+      <div className="flex flex-wrap items-center gap-2">{children}</div>
+    </div>
   );
 }
