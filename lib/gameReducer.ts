@@ -168,6 +168,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
         next.pickedBy = picker;
       }
       if (queued.length) {
+        next.queuedAtOpen = queued;
         next.effects = {
           ...NO_EFFECTS,
           bets: queued.filter((q) => q.power === "bet").map((q) => q.teamId),
@@ -214,7 +215,9 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       const used =
         action.markUsed && !state.used.includes(phase.clueId) ? [...state.used, phase.clueId] : state.used;
       const turnNext = action.markUsed && state.turnOrder?.length ? (state.turnNext ?? 0) + 1 : state.turnNext;
-      return { ...next, used, turnNext, phase: { kind: "board" } };
+      const queued =
+        !action.markUsed && phase.queuedAtOpen?.length ? [...phase.queuedAtOpen, ...(state.queued ?? [])] : state.queued;
+      return { ...next, used, turnNext, queued, phase: { kind: "board" } };
     }
     case "clue:skip": {
       if (phase.kind !== "clue" || phase.resolvedBy) return state;

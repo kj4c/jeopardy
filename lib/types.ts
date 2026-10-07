@@ -136,6 +136,8 @@ export type CluePhase = {
   powerFoundBy?: string;
   /** Teams the host has judged on this clue. */
   answered?: string[];
+  /** Power-ups that were queued when the tile opened, given back if it closes unplayed. */
+  queuedAtOpen?: QueuedPower[];
 };
 
 export type FinalStep = "wager" | "clue" | "reveal" | "done";
