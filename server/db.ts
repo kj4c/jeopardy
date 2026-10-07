@@ -4,7 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { slugify } from "../lib/board";
 import type { Board, GameState, Room, RoomMode, RoomSummary } from "../lib/types";
 
-export const DATA_DIR = path.resolve(process.env.DATA_DIR || "./data");
+/** Railway sets RAILWAY_VOLUME_MOUNT_PATH when a volume is attached; prefer it so the mount path can't be wrong. */
+export const DATA_DIR = path.resolve(process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || "./data");
+export const DATA_IS_EPHEMERAL = !!process.env.RAILWAY_ENVIRONMENT && !process.env.RAILWAY_VOLUME_MOUNT_PATH;
 export const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 mkdirSync(UPLOAD_DIR, { recursive: true });
 

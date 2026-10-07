@@ -36,7 +36,7 @@ Requires Node 22.13+ (uses the built-in `node:sqlite`).
 
 The app is a single Node process (Next.js + Socket.IO), so it needs a host that keeps a server running and has persistent disk. It does not work on Vercel.
 
-**Railway**: create a service from this repo, add a volume mounted at `/data`, set `DATA_DIR=/data` and `SESSION_SECRET`. Railway builds the `Dockerfile` automatically.
+**Railway**: create a service from this repo, attach a volume (any mount path; the app stores data wherever Railway mounts it) and set `SESSION_SECRET`. Without a volume, every deploy wipes all boards; the deploy logs warn about this. Railway builds the `Dockerfile` automatically.
 
 **Fly.io**: `fly launch` (uses the `Dockerfile`), then `fly volumes create data --size 1` and add to `fly.toml`:
 
