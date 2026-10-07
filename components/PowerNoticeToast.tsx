@@ -3,10 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { POWERS } from "@/lib/powers";
 import type { PowerNotice, Team } from "@/lib/types";
+import { ANIMATED_POWERS, animationLength, PowerAnimation } from "./PowerAnimations";
 
-const SHOW_MS = { used: 5000, lost: 5000, found: 6000, missed: 6000 };
+const SHOW_MS = { used: 5000, lost: 5000, found: 6000, missed: 6000, settled: 5000 };
 /** A newer notice replaces the current one after this long. */
 const MIN_SHOW_MS = 1500;
+
+const isAnimated = (n: PowerNotice) => n.kind === "settled" || (n.kind === "used" && ANIMATED_POWERS.has(n.power));
+const showFor = (n: PowerNotice) => (isAnimated(n) ? animationLength(n) : SHOW_MS[n.kind]);
+/** The random question slot machine always finishes; other animations can be cut short by a newer notice. */
+const minShowFor = (n: PowerNotice) => (n.power === "rng" && n.kind === "used" ? animationLength(n) : isAnimated(n) ? 2000 : MIN_SHOW_MS);
 const FADE_MS = 350;
 const SUSPENSE_MS = 1400;
 
@@ -43,13 +49,13 @@ export function PowerNoticeToast({
     if (!current) return;
     shownAt.current = Date.now();
     setLeaving(false);
-    const t = setTimeout(() => setLeaving(true), SHOW_MS[current.kind]);
+    const t = setTimeout(() => setLeaving(true), showFor(current));
     return () => clearTimeout(t);
   }, [current]);
 
   useEffect(() => {
     if (!current || queue.length < 2 || leaving) return;
-    const t = setTimeout(() => setLeaving(true), Math.max(0, MIN_SHOW_MS - (Date.now() - shownAt.current)));
+    const t = setTimeout(() => setLeaving(true), Math.max(0, minShowFor(current) - (Date.now() - shownAt.current)));
     return () => clearTimeout(t);
   }, [current, queue.length, leaving]);
 
@@ -67,6 +73,14 @@ export function PowerNoticeToast({
   }
   const fade = `transition-opacity duration-300 ${leaving ? "opacity-0" : "opacity-100"}`;
   const dismiss = () => setLeaving(true);
+
+  if (isAnimated(current)) {
+    return (
+      <div className={`fixed inset-0 z-[60] ${fade}`} onClick={dismiss}>
+        <PowerAnimation key={current.id} notice={current} teams={teams} big={big} myTeamId={myTeamId} />
+      </div>
+    );
+  }
 
   if (current.kind === "found" || current.kind === "missed") {
     return (

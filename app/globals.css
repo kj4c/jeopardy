@@ -340,6 +340,183 @@ body {
     transform: rotate(7deg) scale(1.08);
   }
 }
+@keyframes wipe-diag {
+  from {
+    clip-path: polygon(0 0, 0 0, 0 0);
+  }
+  to {
+    clip-path: polygon(0 0, 250% 0, 0 250%);
+  }
+}
+@keyframes marquee-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes marquee-right {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes block-throw {
+  0% {
+    transform: translate(-38vw, -45vh) rotate(-160deg) scale(0.5);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    transform: translate(0, 0) rotate(-6deg) scale(1.2);
+  }
+  85% {
+    transform: translate(0, 0) rotate(-4deg) scale(0.95);
+  }
+  100% {
+    transform: translate(0, 0) rotate(-4deg) scale(1);
+    opacity: 1;
+  }
+}
+@keyframes windup {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0);
+  }
+  40% {
+    transform: translateX(-3vw) rotate(-4deg);
+  }
+  65% {
+    transform: translateX(2vw) rotate(3deg);
+  }
+}
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-12px);
+  }
+  40%,
+  80% {
+    transform: translateX(12px);
+  }
+}
+@keyframes hint-glow {
+  0% {
+    transform: scale(0.1);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes flicker {
+  0% {
+    opacity: 0.2;
+    filter: grayscale(1);
+  }
+  15% {
+    opacity: 1;
+    filter: none;
+  }
+  25% {
+    opacity: 0.3;
+    filter: grayscale(1);
+  }
+  40%,
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 40px #ffd75e) drop-shadow(0 0 90px #ffb800);
+  }
+}
+@keyframes slot-tick {
+  from {
+    transform: translateY(-45%);
+    opacity: 0.2;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes chip-fly-right {
+  0% {
+    left: 17.5%;
+    top: 50%;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  50% {
+    top: 5%;
+  }
+  100% {
+    left: 82.5%;
+    top: 50%;
+    opacity: 1;
+  }
+}
+@keyframes chip-fly-left {
+  0% {
+    left: 82.5%;
+    top: 50%;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  50% {
+    top: 5%;
+  }
+  100% {
+    left: 17.5%;
+    top: 50%;
+    opacity: 1;
+  }
+}
+@keyframes slam-left {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes slam-right {
+  from {
+    transform: translateX(110%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes vs-slam {
+  0% {
+    transform: scale(5) rotate(-12deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(0.85) rotate(-6deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(-6deg);
+    opacity: 1;
+  }
+}
 @keyframes spin-slow {
   to {
     transform: rotate(360deg);

@@ -1,0 +1,42 @@
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
+import { PowerAnimation } from "@/components/PowerAnimations";
+import type { PowerNotice, Team } from "@/lib/types";
+
+const teams: Team[] = [
+  { id: "a", name: "Team 1", color: "#ff4f9a", score: 0 },
+  { id: "b", name: "Team 2", color: "#3b6bff", score: 0 },
+  { id: "c", name: "Team 3", color: "#f5a14a", score: 0 },
+];
+
+const notices: Record<string, PowerNotice> = {
+  block: { id: "1", kind: "used", power: "block", teamId: "a", targetTeamId: "b" },
+  double: { id: "2", kind: "used", power: "double", teamId: "a" },
+  rng: {
+    id: "3",
+    kind: "used",
+    power: "rng",
+    teamId: "a",
+    targetTeamId: "b",
+    rng: { category: "World Capitals", value: 600, categories: ["Science", "World Capitals", "Movies", "Food", "Sport"], values: [200, 400, 600, 800, 1000] },
+  },
+  hint: { id: "4", kind: "used", power: "hint", teamId: "c" },
+  bet: { id: "5", kind: "used", power: "bet", teamId: "a" },
+  duel: { id: "7", kind: "used", power: "duel", teamId: "a", targetTeamId: "c", duel: { name: "Jayden", targetName: "Jackie" } },
+  settled: { id: "6", kind: "settled", power: "bet", teamId: "a", targetTeamId: "b", won: true, amount: 400 },
+};
+
+function Preview() {
+  const a = useSearchParams().get("a") ?? "block";
+  return <PowerAnimation notice={notices[a]} teams={teams} big />;
+}
+
+export default function Page() {
+  return (
+    <Suspense>
+      <Preview />
+    </Suspense>
+  );
+}

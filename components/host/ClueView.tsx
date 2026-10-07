@@ -53,6 +53,8 @@ export function ClueView({
   const dd = phase.dailyDouble;
   const ddTeam = dd?.teamId ? teams.find((t) => t.id === dd.teamId) : undefined;
   const resolvedTeam = phase.resolvedBy ? teams.find((t) => t.id === phase.resolvedBy) : undefined;
+  const duelRivalId = resolvedTeam && phase.effects?.duel?.find((d) => d.teamId !== resolvedTeam.id)?.teamId;
+  const duelRival = duelRivalId ? teams.find((t) => t.id === duelRivalId) : undefined;
   const live = mode === "live";
   const showClue = !dd || dd.wager !== undefined;
   const instant = buzzMode === "instant";
@@ -145,6 +147,9 @@ export function ClueView({
                   team={resolvedTeam ?? ddTeam}
                   correct={!!resolvedTeam}
                   amount={dd ? (dd.wager ?? 0) : value * (resolvedTeam && fx?.doubled.includes(resolvedTeam.id) ? 2 : 1)}
+                  duel={!dd && !!fx?.duel}
+                  rival={duelRival}
+                  rivalAmount={duelRival ? value * (fx?.doubled.includes(duelRival.id) ? 2 : 1) : 0}
                 />
               )}
               {questionHidden ? (
@@ -480,11 +485,32 @@ function PickedByPicker({
   );
 }
 
-function ResultBanner({ team, correct, amount }: { team?: Team; correct: boolean; amount: number }) {
-  if (!team) return <p className="animate-pop font-display text-[clamp(2rem,min(5vw,8vh),4.5rem)] text-muted">Nobody got it</p>;
+function ResultBanner({
+  team,
+  correct,
+  amount,
+  duel,
+  rival,
+  rivalAmount = 0,
+}: {
+  team?: Team;
+  correct: boolean;
+  amount: number;
+  duel?: boolean;
+  rival?: Team;
+  rivalAmount?: number;
+}) {
+  if (!team) {
+    return (
+      <div className="animate-pop flex flex-col items-center gap-1">
+        <p className="font-display text-[clamp(2rem,min(5vw,8vh),4.5rem)] text-muted">Nobody got it</p>
+        {duel && <p className="label !text-base">1v1 · no points change hands</p>}
+      </div>
+    );
+  }
   return (
     <div className="animate-pop flex flex-col items-center gap-2 pb-2">
-      <p className="label !text-base">{correct ? "Correct!" : "Not quite"}</p>
+      <p className="label !text-base">{duel ? `${POWERS.duel.icon} 1v1 won!` : correct ? "Correct!" : "Not quite"}</p>
       <p
         className="font-display text-[clamp(3rem,min(9vw,13vh),9rem)] leading-[0.95]"
         style={{ color: team.color, textShadow: `0 0 60px ${team.color}88, 0 0 120px ${team.color}55` }}
@@ -498,6 +524,12 @@ function ResultBanner({ team, correct, amount }: { team?: Team; correct: boolean
           {formatScore(amount)}
         </span>
       </p>
+      {correct && rival && (
+        <p className="font-display text-[clamp(1.4rem,min(3vw,4.5vh),3rem)] text-muted">
+          <span style={{ color: rival.color }}>{rival.name}</span> lost the 1v1{" "}
+          <span className="text-bad">−{formatScore(rivalAmount)}</span>
+        </p>
+      )}
     </div>
   );
 }

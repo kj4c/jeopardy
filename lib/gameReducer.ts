@@ -263,9 +263,12 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       }
       const duelOver = !!fx?.duel && !action.correct && (!rival || phase.lockedTeams.includes(rival));
       let effects = fx;
+      const betNotices: PowerNotice[] = [];
       if (fx?.bets.some((b) => b !== team)) {
         for (const bettor of fx.bets) {
-          if (bettor !== team) teams = addScore(teams, bettor, action.correct ? -amount : amount);
+          if (bettor === team) continue;
+          teams = addScore(teams, bettor, action.correct ? -amount : amount);
+          betNotices.push({ ...notice(bettor, "bet", "settled", team), won: !action.correct, amount });
         }
         effects = { ...fx, bets: fx.bets.filter((b) => b === team) };
       }
@@ -276,16 +279,24 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
           : (phase.pickedBy ?? (action.correct ? team : undefined));
       if (action.correct || dd || duelOver) {
         const used = state.used.includes(phase.clueId) ? state.used : [...state.used, phase.clueId];
-        const next = lostDoubles({
-          ...state,
-          teams,
-          used,
-          controlTeam: action.correct ? team : state.controlTeam,
-          phase: { ...phase, answered, effects, revealed: true, resolvedBy: action.correct ? team : "none" },
-        });
+        const next = lostDoubles(
+          withNotices(
+            {
+              ...state,
+              teams,
+              used,
+              controlTeam: action.correct ? team : state.controlTeam,
+              phase: { ...phase, answered, effects, revealed: true, resolvedBy: action.correct ? team : "none" },
+            },
+            ...betNotices,
+          ),
+        );
         return awardHiddenPower(next, board, finder, true);
       }
-      const next = { ...state, teams, phase: { ...phase, answered, effects, lockedTeams: [...phase.lockedTeams, team] } };
+      const next = withNotices(
+        { ...state, teams, phase: { ...phase, answered, effects, lockedTeams: [...phase.lockedTeams, team] } },
+        ...betNotices,
+      );
       return awardHiddenPower(next, board, finder);
     }
 
@@ -433,6 +444,12 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
           if (opened.phase.kind !== "clue") return state;
           const found = findClue(board, clueId);
           used.detail = `${target.name} must answer ${found?.category.title || "a category"} for $${(found?.value ?? 0).toLocaleString("en-US")}`;
+          used.rng = {
+            category: found?.category.title || "?",
+            value: found?.value ?? 0,
+            categories: board.categories.map((c) => c.title || "?"),
+            values: board.rowValues,
+          };
           const fx = opened.phase.effects;
           return withNotices(
             {
@@ -460,6 +477,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
             { teamId: targetTeamId!, playerId: d.targetPlayerId, name: d.targetPlayerName },
           ];
           if (d.playerName && d.targetPlayerName) used.detail = `${d.playerName} vs ${d.targetPlayerName}`;
+          used.duel = { name: d.playerName, targetName: d.targetPlayerName };
         }
         return withNotices(
           {

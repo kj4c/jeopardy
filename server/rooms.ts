@@ -9,6 +9,7 @@ import type {
   GameState,
   HostSnapshot,
   Player,
+  PowerType,
   PublicSnapshot,
   Room,
 } from "../lib/types";
@@ -318,6 +319,31 @@ function handleBuzz(lr: LiveRoom, player: LivePlayer): BuzzResult {
   return { ok: true };
 }
 
+/** Why a team leader can't use a power-up right now, as an error code the phone explains; undefined if they can. */
+function powerRefusal(lr: LiveRoom, teamId: string, power: PowerType, targetTeamId?: string): string | undefined {
+  const { state } = lr.room;
+  const team = state.teams.find((t) => t.id === teamId);
+  if ((team?.powers?.[power] ?? 0) < 1) return "none_left";
+  if (POWERS[power].timing !== "board") return undefined;
+  if (state.phase.kind !== "board") return "board_only";
+  const queued = state.queued ?? [];
+  if (queued.some((q) => q.teamId === teamId && q.power === power)) return "already_queued";
+  if (POWERS[power].needsTarget) {
+    if (!targetTeamId) return "no_target";
+    if (targetTeamId === teamId) return "self_target";
+    if (!state.teams.some((t) => t.id === targetTeamId)) return "target_gone";
+  }
+  if (power === "duel" && queued.some((q) => q.power === "duel")) return "duel_taken";
+  if (power === "rng") {
+    if (queued.some((q) => q.power === "duel")) return "rng_duel";
+    const left = lr.board.categories.some((c) =>
+      c.clues.some((cl) => !cl.dailyDouble && !state.used.includes(cl.id) && (cl.question || cl.media)),
+    );
+    if (!left) return "rng_empty";
+  }
+  return undefined;
+}
+
 /** Called by the REST API so live rooms stay in sync with edits made elsewhere. */
 export function syncBoard(board: Board) {
   for (const lr of live.values()) {
@@ -542,11 +568,14 @@ export function attachRooms(server: Server) {
         return ack?.({ error: "not_your_turn" });
       }
       const targetTeamId = typeof data.targetTeamId === "string" ? data.targetTeamId : undefined;
+      const refused = powerRefusal(lr, teamId, power, targetTeamId);
+      if (refused) return ack?.({ error: refused });
       let duel: Extract<GameAction, { type: "power:use" }>["duel"];
       if (power === "duel") {
         const playerName = String(data.playerName ?? "").trim().slice(0, 24);
         const targetPlayerName = String(data.targetPlayerName ?? "").trim().slice(0, 24);
-        if (!playerName || !targetPlayerName) return ack?.({ error: "invalid_players" });
+        if (!playerName) return ack?.({ error: "duel_no_player" });
+        if (!targetPlayerName) return ack?.({ error: "duel_no_opponent" });
         const playerId = findByName(lr, teamId, playerName);
         const targetPlayerId = targetTeamId ? findByName(lr, targetTeamId, targetPlayerName) : undefined;
         duel = {

@@ -327,8 +327,23 @@ function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam:
         />
       );
     }
+    const duel = phase.effects?.duel;
     if (phase.resolvedBy) {
       const winner = snap.teams.find((t) => t.id === phase.resolvedBy);
+      if (duel) {
+        const fx = phase.effects!;
+        const worth = (id: string) => phase.value * (fx.doubled.includes(id) ? 2 : 1);
+        const rival = winner && snap.teams.find((t) => t.id !== winner.id && duel.some((d) => d.teamId === t.id));
+        if (!winner) return <Waiting title="No one won the 1v1." body="No points changed hands. Waiting for the next clue." />;
+        const won = `${winner.id === myTeam.id ? "Your team" : winner.name} won ${formatScore(worth(winner.id))}`;
+        const lost = rival ? `${rival.id === myTeam.id ? "your team" : rival.name} lost ${formatScore(worth(rival.id))}` : "";
+        return (
+          <Waiting
+            title={winner.id === myTeam.id ? "You won the 1v1!" : rival?.id === myTeam.id ? "You lost the 1v1." : `${winner.name} won the 1v1.`}
+            body={`${won}${lost ? ` and ${lost}` : ""}. Waiting for the next clue.`}
+          />
+        );
+      }
       return (
         <Waiting
           title={winner ? (winner.id === myTeam.id ? "Nailed it." : `${winner.name} got it.`) : "No one got it."}
@@ -336,7 +351,6 @@ function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam:
         />
       );
     }
-    const duel = phase.effects?.duel;
     if (duel) {
       const mine = duel.find((d) => d.teamId === myTeam.id);
       const label = duel
@@ -713,9 +727,13 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
       ...names,
     }).catch(() => ({ error: "timeout" }));
     setActivating(null);
-    setTargeting(null);
-    if (res.error) setError(res.error === "not_your_turn" ? "Wait until your team is answering." : "Couldn't use that right now.");
-    else vibrate(60);
+    if (res.error) {
+      setError(powerErrorMessage(res.error, power, snap.teams.find((t) => t.id === targetTeamId)?.name));
+      vibrate(200);
+    } else {
+      setTargeting(null);
+      vibrate(60);
+    }
   }
 
   if (needsDraft) {
@@ -812,6 +830,42 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
   );
 }
 
+function powerErrorMessage(code: string, power: PowerType, targetName?: string): string {
+  const name = POWERS[power].name;
+  switch (code) {
+    case "not_leader":
+      return "Only your team leader can use power-ups.";
+    case "none_left":
+      return `Your team has no ${name} left.`;
+    case "board_only":
+      return `${name} has to be used before the next question is picked. Wait until the host is back on the board.`;
+    case "not_your_turn":
+      return `${name} can only be used while your team is answering.`;
+    case "already_queued":
+      return `You already have a ${name} lined up for the next question.`;
+    case "no_target":
+      return "Pick a team first.";
+    case "self_target":
+      return "You can't target your own team.";
+    case "target_gone":
+      return `${targetName ?? "That team"} isn't in the game anymore. Pick another team.`;
+    case "duel_taken":
+      return "Another team already set up a 1v1 for the next question. Try again after it's played.";
+    case "duel_no_player":
+      return "Type the name of the player answering for your team.";
+    case "duel_no_opponent":
+      return `Type the name of the player answering for ${targetName ?? "the other team"}.`;
+    case "rng_duel":
+      return "A 1v1 is lined up for the next question, so you can't send a random one yet.";
+    case "rng_empty":
+      return "There are no questions left to draw from.";
+    case "timeout":
+      return "Lost connection to the room. Check your signal and try again.";
+    default:
+      return `Couldn't use ${name} right now.`;
+  }
+}
+
 function DuelPicker({
   snap,
   myTeamId,
@@ -883,6 +937,15 @@ function DuelPicker({
           <option key={n} value={n} />
         ))}
       </datalist>
+      {(!opponent.trim() || !mine.trim()) && (
+        <p className="text-xs text-muted">
+          {!opponent.trim() && !mine.trim()
+            ? "Type a player name for each team to start."
+            : !opponent.trim()
+              ? `Still need a name for ${target.name}.`
+              : "Still need a name for your team."}
+        </p>
+      )}
       <div className="flex gap-2">
         <button className="btn btn-primary btn-sm flex-1" disabled={busy || !opponent.trim() || !mine.trim()}>
           Start 1v1

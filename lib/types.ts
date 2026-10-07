@@ -108,14 +108,21 @@ export type PowerEffects = {
  * Announcement on the big screen and phones.
  * "found": a team won a tile's hidden power-up. "missed": nobody won the tile, so its hidden power-up went unclaimed
  * (no team). "lost": a team's queued power-up was wasted because they never answered.
+ * "settled": a Bet against paid out; `targetTeamId` answered, `won` says whether the bettor won `amount`.
  */
 export type PowerNotice = {
   id: string;
   teamId?: string;
   power: PowerType;
-  kind: "used" | "found" | "missed" | "lost";
+  kind: "used" | "found" | "missed" | "lost" | "settled";
   targetTeamId?: string;
   detail?: string;
+  amount?: number;
+  won?: boolean;
+  /** Random question: the tile that was drawn, plus everything it was drawn from, for the slot machine. */
+  rng?: { category: string; value: number; categories: string[]; values: number[] };
+  /** 1v1: the challenger's and opponent's player names, when given. */
+  duel?: { name?: string; targetName?: string };
 };
 
 export type CluePhase = {
