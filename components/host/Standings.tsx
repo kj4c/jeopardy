@@ -2,6 +2,7 @@
 
 import { formatScore } from "@/lib/board";
 import type { Team } from "@/lib/types";
+import { Celebration } from "./Celebration";
 
 export function Standings({ teams, title = "Champion" }: { teams: Team[]; title?: string }) {
   const sorted = [...teams].sort((a, b) => b.score - a.score);
@@ -9,6 +10,7 @@ export function Standings({ teams, title = "Champion" }: { teams: Team[]; title?
   const tied = sorted.length > 1 && sorted[1].score === winner?.score;
   return (
     <div className="flex w-full max-w-3xl flex-col items-center gap-8">
+      <Celebration />
       {winner && (
         <div className="animate-pop">
           <p className="label mb-3">{tied ? "Tied at the top" : title}</p>

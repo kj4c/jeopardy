@@ -19,6 +19,7 @@ import { TurnOrderDialog } from "@/components/host/TurnOrderDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UnlockBoard } from "@/components/UnlockBoard";
 import { MusicControl } from "@/components/host/MusicControl";
+import { WelcomeIntro } from "@/components/host/WelcomeIntro";
 import { findClue } from "@/lib/board";
 import { isOut, turnTeam } from "@/lib/gameReducer";
 import { sounds } from "@/lib/sound";
@@ -35,6 +36,16 @@ export default function HostPage() {
   const [turnsOpen, setTurnsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
+  const [intro, setIntro] = useState(false);
+  const endIntro = useCallback(() => setIntro(false), []);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("intro")) return;
+    setIntro(true);
+    url.searchParams.delete("intro");
+    window.history.replaceState(window.history.state, "", url);
+  }, []);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -99,9 +110,13 @@ export default function HostPage() {
   const videoPlaying =
     phase?.kind === "clue" &&
     (openClue?.media?.type === "youtube" || (phase.revealed && openClue?.answerMedia?.type === "youtube"));
+  const showingStandings =
+    phase?.kind === "ended" ||
+    (phase?.kind === "final" && phase.step === "done") ||
+    (phase?.kind === "quickfire" && phase.index >= (board?.quickfire?.questions.length ?? 0));
   const music = useMusic(
-    phase?.kind === "final" || phase?.kind === "quickfire" ? "countdown" : "lobby",
-    videoPlaying ? 0 : phase?.kind === "clue" ? 0.35 : 1,
+    (phase?.kind === "final" || phase?.kind === "quickfire") && !showingStandings ? "countdown" : "lobby",
+    videoPlaying ? 0 : phase?.kind === "clue" ? 0.35 : showingStandings ? 0.5 : 1,
   );
 
   if (game.status === "loading") return <main className="min-h-dvh"><GradientBackground /></main>;
@@ -368,6 +383,7 @@ export default function HostPage() {
       )}
       <PowerNoticeToast notices={room.state.powerNotices} teams={room.state.teams} big />
       <CountdownOverlay count={live ? (buzz.status === "countdown" ? buzz.count : undefined) : localCount} go={goFlash} />
+      {intro && <WelcomeIntro boardName={board.name} onDone={endIntro} />}
     </main>
   );
 }

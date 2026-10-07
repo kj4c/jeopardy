@@ -20,8 +20,9 @@ export function ddMaxWager(board: Board, team: Team | undefined): number {
   return Math.max(team?.score ?? 0, maxRowValue(board));
 }
 
+/** Teams below zero can wager up to their debt, so a right answer brings them back to $0 at best. */
 export function finalMaxWager(team: Team | undefined): number {
-  return Math.max(team?.score ?? 0, 0);
+  return Math.abs(team?.score ?? 0);
 }
 
 function clamp(n: number, min: number, max: number) {
@@ -207,11 +208,10 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       return { ...state, phase: { ...phase, lockedTeams: phase.lockedTeams.filter((id) => id !== action.teamId) } };
     case "clue:close": {
       if (phase.kind !== "clue") return state;
-      const finder = phase.dailyDouble?.teamId ?? (state.buzzMode !== "instant" ? phase.pickedBy : undefined);
       let next = state;
       if (action.markUsed) {
         if (!phase.resolvedBy) next = lostDoubles(next);
-        next = awardHiddenPower(next, board, finder, true);
+        next = awardHiddenPower(next, board, undefined, true);
       }
       const used =
         action.markUsed && !state.used.includes(phase.clueId) ? [...state.used, phase.clueId] : state.used;
@@ -222,15 +222,9 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
     }
     case "clue:skip": {
       if (phase.kind !== "clue" || phase.resolvedBy) return state;
-      const finder = phase.dailyDouble?.teamId ?? (state.buzzMode !== "instant" ? phase.pickedBy : undefined);
       const used = state.used.includes(phase.clueId) ? state.used : [...state.used, phase.clueId];
       const next = lostDoubles(state);
-      return awardHiddenPower(
-        { ...next, used, phase: { ...phase, revealed: true, resolvedBy: "none" } },
-        board,
-        finder,
-        true,
-      );
+      return awardHiddenPower({ ...next, used, phase: { ...phase, revealed: true, resolvedBy: "none" } }, board, undefined, true);
     }
     case "settings:turn-order": {
       const order = [...new Set(action.order)].filter((id) => state.teams.some((t) => t.id === id));
@@ -286,11 +280,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
         }
         effects = { ...fx, bets: fx.bets.filter((b) => b === team) };
       }
-      const finder = dd
-        ? dd.teamId
-        : state.buzzMode === "instant"
-          ? action.correct ? team : undefined
-          : (phase.pickedBy ?? (action.correct ? team : undefined));
+      const finder = action.correct ? team : undefined;
       if (action.correct || dd || duelOver) {
         const used = state.used.includes(phase.clueId) ? state.used : [...state.used, phase.clueId];
         const next = lostDoubles(
@@ -329,7 +319,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       const final: FinalPhase = {
         kind: "final",
         step: "wager",
-        eligible: state.teams.filter((t) => t.score > 0).map((t) => t.id),
+        eligible: state.teams.filter((t) => t.score !== 0).map((t) => t.id),
         wagers: {},
         answers: {},
         revealed: [],

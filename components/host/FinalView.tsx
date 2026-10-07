@@ -49,7 +49,7 @@ export function FinalView({
               {fj?.category || "Final Jeopardy"}
             </h1>
             {eligible.length === 0 ? (
-              <p className="text-muted">No team has a positive score, so no one can play Final Jeopardy.</p>
+              <p className="text-muted">Every team is on $0, so no one has anything to wager.</p>
             ) : (
               <>
                 <p className="text-muted">

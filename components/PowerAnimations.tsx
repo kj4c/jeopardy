@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatScore } from "@/lib/board";
 import { POWERS } from "@/lib/powers";
+import { sfx } from "@/lib/sfx";
 import type { PowerNotice, PowerType, Team } from "@/lib/types";
 
 /** Power-ups with a full-screen animation when used; the rest get a toast. */
@@ -168,7 +169,7 @@ function DoubleAnim({ team, big, name }: { team: Team; big?: boolean; name: Name
 }
 
 /** Flicks through `items`, slowing down, and lands on `final` after `startMs`. */
-function useRoulette<T>(items: T[], final: T, startMs: number, steps = 22) {
+function useRoulette<T>(items: T[], final: T, startMs: number, steps = 22, sound?: "land" | "jackpot") {
   const [value, setValue] = useState<T>(items[0] ?? final);
   const [state, setState] = useState<"waiting" | "spinning" | "done">("waiting");
   useEffect(() => {
@@ -177,17 +178,23 @@ function useRoulette<T>(items: T[], final: T, startMs: number, steps = 22) {
     timers.push(setTimeout(() => setState("spinning"), startMs));
     for (let k = 0; k < steps; k++) {
       const item = items.length ? items[(k * 7 + 3) % items.length] : final;
-      timers.push(setTimeout(() => setValue(item), at));
+      timers.push(
+        setTimeout(() => {
+          setValue(item);
+          if (sound) sfx.tick();
+        }, at),
+      );
       at += 45 + k * k * 0.9;
     }
     timers.push(
       setTimeout(() => {
         setValue(final);
         setState("done");
+        if (sound) sfx[sound]();
       }, at),
     );
     return () => timers.forEach(clearTimeout);
-  }, [items, final, startMs, steps]);
+  }, [items, final, startMs, steps, sound]);
   return { value, state };
 }
 
@@ -204,8 +211,8 @@ function RngAnim({
   big?: boolean;
   name: Name;
 }) {
-  const category = useRoulette(rng.categories, rng.category, 300);
-  const value = useRoulette(rng.values, rng.value, 2300, 18);
+  const category = useRoulette(rng.categories, rng.category, 300, 22, big ? "land" : undefined);
+  const value = useRoulette(rng.values, rng.value, 2300, 18, big ? "jackpot" : undefined);
   const reel = `relative flex items-center justify-center overflow-hidden ${big ? "h-[min(20vh,10rem)]" : "h-24"}`;
   const glow = { textShadow: "0 4px 30px rgba(0,0,0,0.6)" };
   return (

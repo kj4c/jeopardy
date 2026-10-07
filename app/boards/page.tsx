@@ -129,7 +129,7 @@ export default function BoardsPage() {
                               </p>
                             </div>
                             <div className="flex shrink-0 gap-1">
-                              <Link href={`/host/${r.slug}`} className="btn btn-primary btn-sm">
+                              <Link href={`/host/${r.slug}?intro`} className="btn btn-primary btn-sm">
                                 Resume
                               </Link>
                               <button

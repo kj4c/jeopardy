@@ -40,7 +40,7 @@ export function StartGameDialog({
     setError("");
     try {
       const room = await api<Room>("/api/rooms", { method: "POST", json: { name, boardId, mode, teams } });
-      router.push(`/host/${room.slug}`);
+      router.push(`/host/${room.slug}?intro`);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -61,7 +61,7 @@ export function StartGameDialog({
                     /play/{r.slug} · {r.mode === "live" ? "live" : "in person"}
                   </p>
                 </div>
-                <Link href={`/host/${r.slug}`} className="btn btn-primary btn-sm shrink-0">
+                <Link href={`/host/${r.slug}?intro`} className="btn btn-primary btn-sm shrink-0">
                   Resume
                 </Link>
               </li>

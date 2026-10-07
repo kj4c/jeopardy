@@ -7,6 +7,7 @@ import { GradientBackground } from "@/components/GradientBackground";
 import { PowerNoticeToast } from "@/components/PowerNoticeToast";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { formatScore } from "@/lib/board";
+import { finalMaxWager } from "@/lib/gameReducer";
 import { POWER_TYPES, POWERS } from "@/lib/powers";
 import { emitAck, getPlayerId, getSocket } from "@/lib/socket";
 import type { Player, PowerType, PublicSnapshot, Team } from "@/lib/types";
@@ -435,7 +436,14 @@ function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam:
     if (!eligible) return <Waiting title="Final Jeopardy" body={`Category: ${phase.category}. Your team sits this one out.`} />;
     const wager = phase.wagers[myTeam.id];
     if (wager) return <Waiting title="Wager locked." body={`Submitted by ${wager.by ?? "the host"}.`} />;
-    return <WagerInput title={phase.category || "Final Jeopardy"} label="Final Jeopardy" max={Math.max(myTeam.score, 0)} />;
+    return (
+      <WagerInput
+        title={phase.category || "Final Jeopardy"}
+        label="Final Jeopardy"
+        max={finalMaxWager(myTeam)}
+        note={myTeam.score < 0 ? `You're on ${formatScore(myTeam.score)}. Get it right to climb back toward $0.` : undefined}
+      />
+    );
   }
   if (phase.step === "clue") {
     if (!eligible) return <Waiting title="Final Jeopardy" body="Watch the screen." />;
@@ -599,7 +607,7 @@ function Buzzer({
   );
 }
 
-function WagerInput({ title, label = "Daily Double", max }: { title: string; label?: string; max: number }) {
+function WagerInput({ title, label = "Daily Double", max, note }: { title: string; label?: string; max: number; note?: string }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -623,7 +631,10 @@ function WagerInput({ title, label = "Daily Double", max }: { title: string; lab
     >
       <p className="label mb-3">{label}</p>
       <h1 className="font-display mb-2 text-5xl">{title}</h1>
-      <p className="mb-6 text-muted">Wager up to {formatScore(max)}. Only one teammate needs to submit.</p>
+      <p className="mb-6 text-muted">
+        {note && <span className="mb-1 block text-cream">{note}</span>}
+        Wager up to {formatScore(max)}. Only one teammate needs to submit.
+      </p>
       <input
         type="number"
         inputMode="numeric"
