@@ -11,7 +11,7 @@ function sign(value: string) {
   return createHmac("sha256", SECRET).update(value).digest("base64url");
 }
 
-function safeEqual(a: string | Buffer, b: string | Buffer) {
+export function safeEqual(a: string | Buffer, b: string | Buffer) {
   const ab = Buffer.isBuffer(a) ? a : Buffer.from(a);
   const bb = Buffer.isBuffer(b) ? b : Buffer.from(b);
   return ab.length === bb.length && timingSafeEqual(ab, bb);

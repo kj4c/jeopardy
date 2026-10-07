@@ -17,6 +17,7 @@ export function useHostGame(slug: string) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [buzz, setBuzz] = useState<BuzzState>(IDLE_BUZZ);
   const [connected, setConnected] = useState(true);
+  const [remotes, setRemotes] = useState<number | undefined>(undefined);
   const [saveError, setSaveError] = useState(false);
   const roomRef = useRef<Room | null>(null);
   const boardRef = useRef<Board | null>(null);
@@ -32,6 +33,7 @@ export function useHostGame(slug: string) {
     setBoard(snap.board);
     setPlayers(snap.players);
     setBuzz(snap.buzz);
+    setRemotes(snap.remotes);
   }, []);
 
   useEffect(() => {
@@ -145,6 +147,7 @@ export function useHostGame(slug: string) {
     board,
     players,
     buzz,
+    remotes: mode === "live" ? remotes : undefined,
     connected: mode === "live" ? connected : true,
     saveError,
     dispatch,

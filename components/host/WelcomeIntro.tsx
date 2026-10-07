@@ -42,9 +42,9 @@ export function WelcomeIntro({ boardName, onDone }: { boardName: string; onDone:
         Welcome to
       </p>
 
-      <div className="relative mt-[2vh] overflow-hidden pb-[0.2em]">
+      <div className="relative mt-[2vh] overflow-hidden">
         <h1
-          className="font-display max-w-[90vw] text-[clamp(3rem,9vw,10rem)] leading-[1.02] text-cream"
+          className="font-display max-w-[90vw] px-[0.12em] pb-[0.3em] text-[clamp(3rem,9vw,10rem)] leading-[1.02] text-cream"
           style={{ animation: "intro-rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.5s both" }}
         >
           {boardName}
@@ -52,7 +52,7 @@ export function WelcomeIntro({ boardName, onDone }: { boardName: string; onDone:
       </div>
 
       <div
-        className="relative my-[3vh] h-px w-[min(40vw,28rem)] bg-gradient-to-r from-g-blue via-g-pink to-g-orange"
+        className="relative mb-[3vh] mt-[1vh] h-px w-[min(40vw,28rem)] bg-gradient-to-r from-g-blue via-g-pink to-g-orange"
         style={{ animation: "intro-line 0.9s cubic-bezier(0.65, 0, 0.35, 1) 1.1s both" }}
       />
 

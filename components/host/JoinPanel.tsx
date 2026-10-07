@@ -4,20 +4,22 @@ import QRCode from "qrcode";
 import { useEffect, useState } from "react";
 import type { Player, Team } from "@/lib/types";
 
-function useJoinUrl(slug: string) {
+/** Full URL for `path` that a phone can open; on localhost it uses the computer's network address instead. */
+export function usePhoneUrl(path: string | null) {
   const [url, setUrl] = useState("");
   useEffect(() => {
+    if (path === null) return;
     const origin = window.location.origin;
     const isLocal = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
     if (!isLocal) {
-      setUrl(`${origin}/play/${slug}`);
+      setUrl(`${origin}${path}`);
       return;
     }
     fetch("/api/public/info")
       .then((r) => r.json())
-      .then((info: { lan: string[] }) => setUrl(`${info.lan[0] ?? origin}/play/${slug}`))
-      .catch(() => setUrl(`${origin}/play/${slug}`));
-  }, [slug]);
+      .then((info: { lan: string[] }) => setUrl(`${info.lan[0] ?? origin}${path}`))
+      .catch(() => setUrl(`${origin}${path}`));
+  }, [path]);
   return url;
 }
 
@@ -34,7 +36,7 @@ export function JoinPanel({
   onRemovePlayer: (id: string) => void;
   onClose: () => void;
 }) {
-  const url = useJoinUrl(slug);
+  const url = usePhoneUrl(`/play/${slug}`);
   const [qr, setQr] = useState("");
 
   useEffect(() => {

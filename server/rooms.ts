@@ -1,6 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { findClue } from "../lib/board";
-import { answeringTeam, ddMaxWager, finalMaxWager, forcedTeam, gameReducer, isOut } from "../lib/gameReducer";
+import { answeringTeam, ddMaxWager, finalMaxWager, forcedTeam, gameReducer, isOut, turnTeam } from "../lib/gameReducer";
 import { isPowerType, POWERS } from "../lib/powers";
 import type {
   Board,
@@ -11,10 +11,11 @@ import type {
   Player,
   PowerType,
   PublicSnapshot,
+  RemoteSnapshot,
   Room,
 } from "../lib/types";
-import { hasBoardAccess } from "./auth";
-import { getBoard, getPasswordHash, getRoom, updateRoom } from "./db";
+import { hasBoardAccess, safeEqual } from "./auth";
+import { getBoard, getPasswordHash, getRemoteKey, getRoom, updateRoom } from "./db";
 
 type LivePlayer = Player & { sockets: Set<string>; latency: number; penaltyUntil: number; teamJoinedAt: number };
 
@@ -98,8 +99,82 @@ export function withoutSecrets(state: GameState): GameState {
   return rest;
 }
 
+const remoteCount = (slug: string) => io.sockets.adapter.rooms.get(`remote:${slug}`)?.size ?? 0;
+
 function hostSnapshot(lr: LiveRoom): HostSnapshot {
-  return { room: { ...lr.room, state: withoutSecrets(lr.room.state) }, board: lr.board, players: playersList(lr), buzz: lr.buzz };
+  return {
+    room: { ...lr.room, state: withoutSecrets(lr.room.state) },
+    board: lr.board,
+    players: playersList(lr),
+    buzz: lr.buzz,
+    remotes: remoteCount(lr.room.slug),
+  };
+}
+
+function remoteSnapshot(lr: LiveRoom): RemoteSnapshot {
+  const { room, board, buzz } = lr;
+  const { state } = room;
+  const teamRef = (id: string | undefined) => {
+    const t = id ? state.teams.find((x) => x.id === id) : undefined;
+    return t ? { name: t.name, color: t.color } : undefined;
+  };
+  const p = state.phase;
+  let phase: RemoteSnapshot["phase"] = { kind: "board", picking: teamRef(turnTeam(state) ?? state.controlTeam) };
+  if (p.kind === "clue") {
+    const found = findClue(board, p.clueId);
+    const dd = p.dailyDouble;
+    const media = found?.clue.media?.type;
+    phase = {
+      kind: "clue",
+      category: found?.category.title ?? "",
+      value: found?.value ?? 0,
+      question: found?.clue.question ?? "",
+      answer: found?.clue.answer ?? "",
+      hint: found?.clue.hint || undefined,
+      media: media === "youtube" ? "video" : media,
+      revealed: p.revealed,
+      answering: teamRef(dd ? dd.teamId : answeringTeam(state, buzz, room.mode)),
+      dailyDouble: dd ? { team: teamRef(dd.teamId), wager: dd.wager } : undefined,
+    };
+  } else if (p.kind === "final") {
+    const fj = board.finalJeopardy;
+    phase = {
+      kind: "final",
+      step: p.step,
+      category: fj?.category ?? "",
+      question: fj?.question ?? "",
+      answer: fj?.answer ?? "",
+      responses: p.eligible.flatMap((id) => {
+        const team = teamRef(id);
+        return team ? [{ team, wager: p.wagers[id]?.amount, text: p.answers[id]?.text, judged: p.judged[id] }] : [];
+      }),
+    };
+  } else if (p.kind === "quickfire") {
+    const q = board.quickfire?.questions[p.index];
+    phase = {
+      kind: "quickfire",
+      index: p.index,
+      total: board.quickfire?.questions.length ?? 0,
+      question: q?.question,
+      answer: q?.answer,
+      answering: p.resolvedBy ? undefined : teamRef(buzz.buzzes[0]?.teamId),
+    };
+  } else if (p.kind === "ended") {
+    phase = { kind: "ended" };
+  }
+  return {
+    roomName: room.name,
+    teams: state.teams.map((t) => ({ id: t.id, name: t.name, color: t.color, score: t.score })),
+    phase,
+  };
+}
+
+/** Disconnects every host remote for a room, after its key has been changed. */
+export function revokeRemotes(slug: string) {
+  io.to(`remote:${slug}`).emit("remote:revoked");
+  io.in(`remote:${slug}`).socketsLeave(`remote:${slug}`);
+  const lr = live.get(slug);
+  if (lr) broadcast(lr);
 }
 
 export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & { players?: Player[] }): PublicSnapshot {
@@ -177,6 +252,7 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
 function broadcast(lr: LiveRoom) {
   const slug = lr.room.slug;
   io.to(`host:${slug}`).emit("host:state", hostSnapshot(lr));
+  if (remoteCount(slug)) io.to(`remote:${slug}`).emit("remote:state", remoteSnapshot(lr));
   const snap = publicSnapshot({ ...lr, players: playersList(lr) });
   const steals = lr.room.state.steals ?? [];
   const thiefSockets = [...lr.players.values()]
@@ -387,6 +463,7 @@ export function dropRoom(slug: string) {
   if (!lr) return;
   io.to(`play:${slug}`).emit("room:closed");
   io.to(`host:${slug}`).emit("room:closed");
+  io.to(`remote:${slug}`).emit("room:closed");
   live.delete(slug);
 }
 
@@ -396,7 +473,8 @@ function sweepIdleRooms() {
   for (const [slug, lr] of live) {
     const connected =
       (io.sockets.adapter.rooms.get(`play:${slug}`)?.size ?? 0) +
-      (io.sockets.adapter.rooms.get(`host:${slug}`)?.size ?? 0);
+      (io.sockets.adapter.rooms.get(`host:${slug}`)?.size ?? 0) +
+      remoteCount(slug);
     if (connected > 0) {
       lr.emptySince = undefined;
     } else if (lr.emptySince === undefined) {
@@ -424,6 +502,7 @@ export function attachRooms(server: Server) {
     let slug: string | null = null;
     let playerId: string | null = null;
     let isHostSocket = false;
+    let remoteSlug: string | null = null;
 
     socket.on("ping:check", (_t: number, ack?: (now: number) => void) => {
       if (typeof ack === "function") ack(Date.now());
@@ -439,6 +518,17 @@ export function attachRooms(server: Server) {
       isHostSocket = true;
       socket.join(`host:${slug}`);
       ack?.({ snapshot: hostSnapshot(lr) });
+    });
+
+    socket.on("remote:join", (data: { slug: string; key: string }, ack?: (res: unknown) => void) => {
+      const lr = load(String(data?.slug ?? ""));
+      if (!lr) return ack?.({ error: "not_found" });
+      const key = String(data?.key ?? "");
+      if (!key || !safeEqual(key, getRemoteKey(lr.room.slug))) return ack?.({ error: "bad_key" });
+      remoteSlug = lr.room.slug;
+      socket.join(`remote:${remoteSlug}`);
+      ack?.({ snapshot: remoteSnapshot(lr) });
+      broadcast(lr);
     });
 
     socket.on("host:action", (action: GameAction) => {
@@ -637,6 +727,8 @@ export function attachRooms(server: Server) {
     });
 
     socket.on("disconnect", () => {
+      const remoteRoom = remoteSlug ? live.get(remoteSlug) : undefined;
+      if (remoteRoom) broadcast(remoteRoom);
       const cur = currentPlayer();
       if (!cur) return;
       cur.player.sockets.delete(socket.id);

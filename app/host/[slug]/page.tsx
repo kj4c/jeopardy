@@ -15,6 +15,7 @@ import { JoinPanel } from "@/components/host/JoinPanel";
 import { PlayBoard } from "@/components/host/PlayBoard";
 import { QuickfireView } from "@/components/host/QuickfireView";
 import { Scoreboard } from "@/components/host/Scoreboard";
+import { HostRemoteDialog } from "@/components/host/HostRemoteDialog";
 import { TurnOrderDialog } from "@/components/host/TurnOrderDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UnlockBoard } from "@/components/UnlockBoard";
@@ -35,6 +36,7 @@ export default function HostPage() {
   const [powersOpen, setPowersOpen] = useState(false);
   const [turnsOpen, setTurnsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [remoteOpen, setRemoteOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
   const [intro, setIntro] = useState(false);
   const endIntro = useCallback(() => setIntro(false), []);
@@ -269,6 +271,22 @@ export default function HostPage() {
                   </button>
                 )}
               </Setting>
+              <Setting label="Host phone">
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => (setRemoteOpen(true), setSettingsOpen(false))}
+                  title="See the answers on your phone"
+                >
+                  {game.remotes ? (
+                    <>
+                      <span className="h-2 w-2 rounded-full bg-good" />
+                      Connected
+                    </>
+                  ) : (
+                    "Connect"
+                  )}
+                </button>
+              </Setting>
               <Setting label="Music">
                 <MusicControl
                   lobby={music.lobby}
@@ -372,6 +390,7 @@ export default function HostPage() {
           onClose={() => setPowersOpen(false)}
         />
       )}
+      {remoteOpen && <HostRemoteDialog slug={room.slug} connected={game.remotes} onClose={() => setRemoteOpen(false)} />}
       {turnsOpen && (
         <TurnOrderDialog
           teams={room.state.teams}

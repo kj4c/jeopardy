@@ -18,7 +18,7 @@ import {
   verifyPassword,
 } from "./auth";
 import * as db from "./db";
-import { dropRoom, getLiveState, publicSnapshot, syncBoard, syncRoom, withoutSecrets } from "./rooms";
+import { dropRoom, getLiveState, publicSnapshot, revokeRemotes, syncBoard, syncRoom, withoutSecrets } from "./rooms";
 
 /** Sends games back to the board if the clue they had open was deleted in the editor. */
 function closeDeletedClues(board: Board) {
@@ -335,6 +335,14 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
         const saved = db.updateRoom(id, patch);
         syncRoom(id, patch);
         return send(res, 200, saved);
+      }
+      if (sub === "remote-key" && method === "GET") {
+        return send(res, 200, { key: db.getRemoteKey(id) });
+      }
+      if (sub === "remote-key" && method === "POST") {
+        const key = db.resetRemoteKey(id);
+        revokeRemotes(id);
+        return send(res, 200, { key });
       }
       if (sub === "reset" && method === "POST") {
         const state: GameState = {

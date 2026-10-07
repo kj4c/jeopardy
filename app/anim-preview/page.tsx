@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { PowerAnimation } from "@/components/PowerAnimations";
 import { Standings } from "@/components/host/Standings";
+import { WelcomeIntro } from "@/components/host/WelcomeIntro";
 import type { PowerNotice, Team } from "@/lib/types";
 
 const teams: Team[] = [
@@ -34,6 +35,7 @@ const notices: Record<string, PowerNotice> = {
 
 function Preview() {
   const a = useSearchParams().get("a") ?? "block";
+  if (a === "welcome") return <WelcomeIntro boardName="jayden's quippy jeopardy" onDone={() => {}} />;
   if (a === "standings") return <Standings teams={teams.map((t, i) => ({ ...t, score: [1800, -400, 2600][i] }))} />;
   return <PowerAnimation notice={notices[a]} teams={teams} big />;
 }

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -29,6 +30,10 @@ db.exec(`
     updated_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS rooms_board ON rooms(board_id);
+  CREATE TABLE IF NOT EXISTS remote_keys (
+    slug TEXT PRIMARY KEY,
+    key TEXT NOT NULL
+  );
 `);
 
 const boardColumns = (db.prepare("PRAGMA table_info(boards)").all() as { name: string }[]).map((c) => c.name);
@@ -157,6 +162,7 @@ export function updateBoard(board: Board): Board | null {
 }
 
 export function deleteBoard(id: string) {
+  db.prepare("DELETE FROM remote_keys WHERE slug IN (SELECT slug FROM rooms WHERE board_id = ?)").run(id);
   db.prepare("DELETE FROM rooms WHERE board_id = ?").run(id);
   db.prepare("DELETE FROM boards WHERE id = ?").run(id);
 }
@@ -203,5 +209,21 @@ export function countBoards(): number {
 }
 
 export function deleteRoom(slug: string) {
+  db.prepare("DELETE FROM remote_keys WHERE slug = ?").run(slug);
   db.prepare("DELETE FROM rooms WHERE slug = ?").run(slug);
+}
+
+/** Secret that lets a phone open the host remote, which shows the answers. Made on first use. */
+export function getRemoteKey(slug: string): string {
+  const row = db.prepare("SELECT key FROM remote_keys WHERE slug = ?").get(slug) as { key: string } | undefined;
+  return row?.key ?? resetRemoteKey(slug);
+}
+
+export function resetRemoteKey(slug: string): string {
+  const key = randomBytes(18).toString("base64url");
+  db.prepare("INSERT INTO remote_keys (slug, key) VALUES (?, ?) ON CONFLICT(slug) DO UPDATE SET key = excluded.key").run(
+    slug,
+    key,
+  );
+  return key;
 }

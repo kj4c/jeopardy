@@ -253,6 +253,40 @@ export type HostSnapshot = {
   board: Board;
   players: Player[];
   buzz: BuzzState;
+  /** Host remote phones connected right now. */
+  remotes?: number;
+};
+
+type RemoteTeam = { name: string; color: string };
+
+/** What the host's phone sees. Only sent to phones holding the room's remote key. */
+export type RemoteSnapshot = {
+  roomName: string;
+  teams: (RemoteTeam & { id: string; score: number })[];
+  phase:
+    | { kind: "board"; picking?: RemoteTeam }
+    | {
+        kind: "clue";
+        category: string;
+        value: number;
+        question: string;
+        answer: string;
+        hint?: string;
+        media?: "image" | "video";
+        revealed: boolean;
+        answering?: RemoteTeam;
+        dailyDouble?: { team?: RemoteTeam; wager?: number };
+      }
+    | {
+        kind: "final";
+        step: FinalStep;
+        category: string;
+        question: string;
+        answer: string;
+        responses: { team: RemoteTeam; wager?: number; text?: string; judged?: boolean }[];
+      }
+    | { kind: "quickfire"; index: number; total: number; question?: string; answer?: string; answering?: RemoteTeam }
+    | { kind: "ended" };
 };
 
 /** What phones receive. Never includes answers. */
