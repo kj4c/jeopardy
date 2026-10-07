@@ -150,6 +150,10 @@ export function ClueView({
                   duel={!dd && !!fx?.duel}
                   rival={duelRival}
                   rivalAmount={duelRival ? value * (fx?.doubled.includes(duelRival.id) ? 2 : 1) : 0}
+                  thieves={phase.stolen
+                    ?.filter((s) => s.teamId === resolvedTeam?.id && s.amount > 0)
+                    .map((s) => teams.find((t) => t.id === s.by))
+                    .filter((t): t is Team => !!t)}
                 />
               )}
               {questionHidden ? (
@@ -492,6 +496,7 @@ function ResultBanner({
   duel,
   rival,
   rivalAmount = 0,
+  thieves = [],
 }: {
   team?: Team;
   correct: boolean;
@@ -499,7 +504,9 @@ function ResultBanner({
   duel?: boolean;
   rival?: Team;
   rivalAmount?: number;
+  thieves?: Team[];
 }) {
+  const stolen = correct && thieves.length > 0;
   if (!team) {
     return (
       <div className="animate-pop flex flex-col items-center gap-1">
@@ -519,11 +526,23 @@ function ResultBanner({
       </p>
       <p className="font-display text-[clamp(1.8rem,min(4vw,6vh),4rem)]">
         {correct ? "got it" : "missed"}{" "}
-        <span className={correct ? "text-good" : "text-bad"}>
+        <span className={stolen ? "text-muted line-through" : correct ? "text-good" : "text-bad"}>
           {correct ? "+" : "−"}
           {formatScore(amount)}
         </span>
       </p>
+      {stolen && (
+        <p className="font-display text-[clamp(1.4rem,min(3vw,4.5vh),3rem)]">
+          {POWERS.steal.icon}{" "}
+          {thieves.map((t, i) => (
+            <span key={t.id}>
+              {i > 0 && " & "}
+              <span style={{ color: t.color }}>{t.name}</span>
+            </span>
+          ))}{" "}
+          secretly stole it <span className="text-good">+{formatScore(amount)}</span>
+        </p>
+      )}
       {correct && rival && (
         <p className="font-display text-[clamp(1.4rem,min(3vw,4.5vh),3rem)] text-muted">
           <span style={{ color: rival.color }}>{rival.name}</span> lost the 1v1{" "}

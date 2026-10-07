@@ -11,6 +11,7 @@ export const ANIMATED_POWERS = new Set<PowerType>(["block", "double", "rng", "hi
 /** How long each animation stays up, in ms. */
 export function animationLength(n: PowerNotice): number {
   if (n.kind === "settled") return 3800;
+  if (n.kind === "stolen") return 4400;
   return { block: 3400, double: 2800, rng: 5600, hint: 3000, bet: 3400, duel: 3600 }[n.power as string] ?? 3000;
 }
 
@@ -23,6 +24,9 @@ export function PowerAnimation({ notice, teams, big, myTeamId }: Props) {
   const name = (t: Team) => (t.id === myTeamId ? "Your team" : t.name);
   if (notice.kind === "settled") {
     return target ? <BetResult by={team} target={target} won={!!notice.won} amount={notice.amount ?? 0} big={big} name={name} /> : null;
+  }
+  if (notice.kind === "stolen") {
+    return target ? <StealAnim thief={team} target={target} amount={notice.amount ?? 0} big={big} name={name} /> : null;
   }
   switch (notice.power) {
     case "block":
@@ -336,7 +340,45 @@ function DuelAnim({
   );
 }
 
-function Chips({ direction, count = 6 }: { direction: "right" | "left"; count?: number }) {
+function StealAnim({ thief, target, amount, big, name }: { thief: Team; target: Team; amount: number; big?: boolean; name: Name }) {
+  const gain = amount > 0;
+  return (
+    <Stage>
+      <p className={`label animate-pop ${big ? "!text-xl" : ""}`}>{POWERS.steal.icon} Secret Steal!</p>
+      <div className={`relative flex w-[min(92vw,64rem)] items-center justify-between ${big ? "h-[min(30vh,16rem)]" : "h-36"}`}>
+        <TeamCard
+          team={thief}
+          name={name}
+          big={big}
+          style={{ animation: "slam-left 0.5s cubic-bezier(0.2, 0.9, 0.3, 1) 0.5s both" }}
+        />
+        <div className="relative">
+          <TeamCard team={target} name={name} big={big} style={{ animation: "shake 0.45s ease 1.1s both" }} />
+          <span
+            className={`font-display animate-pop absolute -top-[0.9em] right-0 ${big ? "text-[clamp(2rem,4vw,3.5rem)]" : "text-2xl"} ${
+              gain ? "text-good" : "text-bad"
+            }`}
+          >
+            {gain ? "+" : "−"}
+            {formatScore(Math.abs(amount))}
+          </span>
+        </div>
+        <Chips direction="left" delay={0.9} />
+      </div>
+      <Caption big={big} delay={1700}>
+        <TeamName team={thief} name={name} /> {gain ? "stole" : "took"} <TeamName team={target} name={name} />
+        &apos;s{" "}
+        <span className={gain ? "text-good" : "text-bad"}>
+          {gain ? "+" : "−"}
+          {formatScore(Math.abs(amount))}
+        </span>
+        {!gain && " 😬"}
+      </Caption>
+    </Stage>
+  );
+}
+
+function Chips({ direction, count = 6, delay = 0.5 }: { direction: "right" | "left"; count?: number; delay?: number }) {
   return (
     <>
       {Array.from({ length: count }).map((_, i) => (
@@ -345,7 +387,7 @@ function Chips({ direction, count = 6 }: { direction: "right" | "left"; count?: 
           className="absolute h-[clamp(1.6rem,3.5vw,3rem)] w-[clamp(1.6rem,3.5vw,3rem)] -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-dashed border-white"
           style={{
             background: ["#ff4f9a", "#f5a14a", "#3b6bff", "#22d3a6"][i % 4],
-            animation: `chip-fly-${direction} 0.75s cubic-bezier(0.4, 0, 0.3, 1) ${0.5 + i * 0.12}s both`,
+            animation: `chip-fly-${direction} 0.75s cubic-bezier(0.4, 0, 0.3, 1) ${delay + i * 0.12}s both`,
           }}
         />
       ))}

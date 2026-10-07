@@ -57,7 +57,7 @@ export type Board = {
   updatedAt?: number;
 };
 
-export type PowerType = "bet" | "double" | "block" | "duel" | "rng" | "second" | "hint";
+export type PowerType = "bet" | "double" | "block" | "duel" | "rng" | "steal" | "second" | "hint";
 
 /** One side of a 1v1. Without a player id, anyone on the team can buzz. */
 export type Duelist = { teamId: string; playerId?: string; name?: string };
@@ -109,12 +109,13 @@ export type PowerEffects = {
  * "found": a team won a tile's hidden power-up. "missed": nobody won the tile, so its hidden power-up went unclaimed
  * (no team). "lost": a team's queued power-up was wasted because they never answered.
  * "settled": a Bet against paid out; `targetTeamId` answered, `won` says whether the bettor won `amount`.
+ * "stolen": a secret Steal went off; the thief took `targetTeamId`'s result, `amount` (negative for a wrong answer).
  */
 export type PowerNotice = {
   id: string;
   teamId?: string;
   power: PowerType;
-  kind: "used" | "found" | "missed" | "lost" | "settled";
+  kind: "used" | "found" | "missed" | "lost" | "settled" | "stolen";
   targetTeamId?: string;
   detail?: string;
   amount?: number;
@@ -145,7 +146,11 @@ export type CluePhase = {
   answered?: string[];
   /** Power-ups that were queued when the tile opened, given back if it closes unplayed. */
   queuedAtOpen?: QueuedPower[];
+  /** Secret Steals that went off on this clue: `by` took `teamId`'s `amount`. */
+  stolen?: Stolen[];
 };
+
+export type Stolen = { teamId: string; by: string; amount: number };
 
 export type FinalStep = "wager" | "clue" | "reveal" | "done";
 
@@ -199,6 +204,11 @@ export type GameState = {
   turnOrder?: string[];
   /** Position in `turnOrder` of the team that picks next. */
   turnNext?: number;
+  /**
+   * Teams with a secret Steal waiting. Never sent to phones except the thief's own. The Steal stays in the team's
+   * power count until it goes off, so nobody can tell it was used.
+   */
+  steals?: string[];
 };
 
 export type RoomMode = "live" | "local";
@@ -259,6 +269,8 @@ export type PublicSnapshot = {
   powerNotices: PowerNotice[];
   /** Team currently answering a regular clue, if any. */
   answeringTeam?: string;
+  /** Only sent to the phones of a team whose secret Steal is waiting. */
+  stealArmed?: boolean;
   phase:
     | { kind: "board" }
     | {
@@ -272,6 +284,7 @@ export type PublicSnapshot = {
         forced?: { teamId: string; by: string };
         effects?: PowerEffects;
         powerFoundBy?: string;
+        stolen?: Stolen[];
         dailyDouble?: { teamId?: string; wager?: number; maxWager?: number };
       }
     | {

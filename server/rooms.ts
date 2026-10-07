@@ -91,8 +91,15 @@ function playersList(lr: LiveRoom): Player[] {
   }));
 }
 
+/** State without secret Steals, for anything other players might see, including the big screen. */
+export function withoutSecrets(state: GameState): GameState {
+  if (!state.steals) return state;
+  const { steals: _, ...rest } = state;
+  return rest;
+}
+
 function hostSnapshot(lr: LiveRoom): HostSnapshot {
-  return { room: lr.room, board: lr.board, players: playersList(lr), buzz: lr.buzz };
+  return { room: { ...lr.room, state: withoutSecrets(lr.room.state) }, board: lr.board, players: playersList(lr), buzz: lr.buzz };
 }
 
 export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & { players?: Player[] }): PublicSnapshot {
@@ -113,6 +120,7 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
       forced: state.phase.forced,
       effects: state.phase.effects,
       powerFoundBy: state.phase.powerFoundBy,
+      stolen: state.phase.stolen,
       dailyDouble: dd
         ? {
             ...dd,
@@ -169,7 +177,17 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
 function broadcast(lr: LiveRoom) {
   const slug = lr.room.slug;
   io.to(`host:${slug}`).emit("host:state", hostSnapshot(lr));
-  io.to(`play:${slug}`).emit("public:state", publicSnapshot({ ...lr, players: playersList(lr) }));
+  const snap = publicSnapshot({ ...lr, players: playersList(lr) });
+  const steals = lr.room.state.steals ?? [];
+  const thiefSockets = [...lr.players.values()]
+    .filter((p) => p.teamId && steals.includes(p.teamId))
+    .flatMap((p) => [...p.sockets]);
+  if (!thiefSockets.length) {
+    io.to(`play:${slug}`).emit("public:state", snap);
+    return;
+  }
+  io.to(`play:${slug}`).except(thiefSockets).emit("public:state", snap);
+  io.to(thiefSockets).emit("public:state", { ...snap, stealArmed: true });
 }
 
 function scheduleSave(lr: LiveRoom) {
@@ -324,6 +342,7 @@ function powerRefusal(lr: LiveRoom, teamId: string, power: PowerType, targetTeam
   const { state } = lr.room;
   const team = state.teams.find((t) => t.id === teamId);
   if ((team?.powers?.[power] ?? 0) < 1) return "none_left";
+  if (power === "steal") return state.steals?.includes(teamId) ? "steal_armed" : undefined;
   if (POWERS[power].timing !== "board") return undefined;
   if (state.phase.kind !== "board") return "board_only";
   const queued = state.queued ?? [];

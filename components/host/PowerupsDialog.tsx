@@ -64,7 +64,7 @@ export function PowerupsDialog({
                   </span>
                   <span>
                     <span className="block text-xl font-semibold">{p.name}</span>
-                    <span className="label">{p.timing === "board" ? "Before the question" : "Before answering"}</span>
+                    <span className="label">{p.timing === "board" ? "Before the question" : p.timing === "anytime" ? "Any time · secret" : "Before answering"}</span>
                   </span>
                   <span className="text-base leading-relaxed text-muted">{p.description}</span>
                 </button>

@@ -147,6 +147,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
         controlTeam: state.controlTeam === action.teamId ? undefined : state.controlTeam,
         queued: state.queued?.filter((q) => q.teamId !== action.teamId && q.targetTeamId !== action.teamId),
         turnOrder: state.turnOrder?.filter((id) => id !== action.teamId),
+        steals: state.steals?.filter((id) => id !== action.teamId),
       };
     case "score:adjust":
       return { ...state, teams: addScore(state.teams, action.teamId, Math.round(action.delta)) };
@@ -255,15 +256,28 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       const multiplier = fx?.doubled.includes(team) ? 2 : 1;
       const rival = fx?.duel?.find((d) => d.teamId !== team)?.teamId;
       let teams = state.teams;
-      if (!fx?.duel) {
-        teams = addScore(teams, team, (action.correct ? amount : -amount) * multiplier);
-      } else if (action.correct) {
-        teams = addScore(teams, team, amount * multiplier);
-        if (rival) teams = addScore(teams, rival, -amount * (fx.doubled.includes(rival) ? 2 : 1));
+      const delta = !fx?.duel || action.correct ? (action.correct ? amount : -amount) * multiplier : 0;
+      const thieves = delta
+        ? (state.steals ?? []).filter((id) => id !== team && state.teams.some((t) => t.id === id))
+        : [];
+      const betNotices: PowerNotice[] = [];
+      if (thieves.length) {
+        for (const thief of thieves) {
+          teams = addPower(addScore(teams, thief, delta), thief, "steal", -1);
+          betNotices.push({ ...notice(thief, "steal", "stolen", team), amount: delta });
+        }
+      } else {
+        teams = addScore(teams, team, delta);
       }
+      if (fx?.duel && action.correct && rival) {
+        teams = addScore(teams, rival, -amount * (fx.doubled.includes(rival) ? 2 : 1));
+      }
+      const steals = thieves.length ? state.steals!.filter((id) => !thieves.includes(id)) : state.steals;
+      const stolen = thieves.length
+        ? [...(phase.stolen ?? []), ...thieves.map((by) => ({ teamId: team, by, amount: delta }))]
+        : phase.stolen;
       const duelOver = !!fx?.duel && !action.correct && (!rival || phase.lockedTeams.includes(rival));
       let effects = fx;
-      const betNotices: PowerNotice[] = [];
       if (fx?.bets.some((b) => b !== team)) {
         for (const bettor of fx.bets) {
           if (bettor === team) continue;
@@ -284,9 +298,10 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
             {
               ...state,
               teams,
+              steals,
               used,
               controlTeam: action.correct ? team : state.controlTeam,
-              phase: { ...phase, answered, effects, revealed: true, resolvedBy: action.correct ? team : "none" },
+              phase: { ...phase, answered, effects, stolen, revealed: true, resolvedBy: action.correct ? team : "none" },
             },
             ...betNotices,
           ),
@@ -294,7 +309,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
         return awardHiddenPower(next, board, finder, true);
       }
       const next = withNotices(
-        { ...state, teams, phase: { ...phase, answered, effects, lockedTeams: [...phase.lockedTeams, team] } },
+        { ...state, teams, steals, phase: { ...phase, answered, effects, stolen, lockedTeams: [...phase.lockedTeams, team] } },
         ...betNotices,
       );
       return awardHiddenPower(next, board, finder);
@@ -426,6 +441,10 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       const { teamId, power, targetTeamId } = action;
       const team = state.teams.find((t) => t.id === teamId);
       if (!isPowerType(power) || !team || (team.powers?.[power] ?? 0) < 1) return state;
+      if (power === "steal") {
+        if (state.steals?.includes(teamId)) return state;
+        return { ...state, steals: [...(state.steals ?? []), teamId] };
+      }
       const teams = addPower(state.teams, teamId, power, -1);
       const used = notice(teamId, power, "used", targetTeamId);
       if (POWERS[power].timing === "board") {

@@ -344,6 +344,17 @@ function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam:
           />
         );
       }
+      const theft = winner && phase.stolen?.find((s) => s.teamId === winner.id && s.amount > 0);
+      if (winner && theft) {
+        const thief = snap.teams.find((t) => t.id === theft.by);
+        const thiefName = thief?.id === myTeam.id ? "your team" : (thief?.name ?? "another team");
+        return (
+          <Waiting
+            title={thief?.id === myTeam.id ? "Stolen! 🥷" : winner.id === myTeam.id ? "Nailed it… but stolen." : `${winner.name} got it.`}
+            body={`${thiefName[0].toUpperCase()}${thiefName.slice(1)} secretly stole the ${formatScore(theft.amount)}. Waiting for the next clue.`}
+          />
+        );
+      }
       return (
         <Waiting
           title={winner ? (winner.id === myTeam.id ? "Nailed it." : `${winner.name} got it.`) : "No one got it."}
@@ -696,7 +707,9 @@ function FinalAnswerInput({ timerLeftMs }: { timerLeftMs?: number }) {
 
 function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; me: Player }) {
   const settings = snap.powerSettings;
-  const owned = POWER_TYPES.filter((p) => (myTeam.powers?.[p] ?? 0) > 0);
+  const armed = !!snap.stealArmed;
+  const left = (p: PowerType) => (myTeam.powers?.[p] ?? 0) - (p === "steal" && armed ? 1 : 0);
+  const owned = POWER_TYPES.filter((p) => left(p) > 0);
   const queued = snap.queued.filter((q) => q.teamId === myTeam.id);
   const leader = snap.players.find((p) => p.teamId === myTeam.id && p.leader);
   const [error, setError] = useState("");
@@ -705,12 +718,13 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
   const busy = !!activating;
 
   const needsDraft = !!settings?.enabled.length && settings.draftCount > 0 && !myTeam.drafted;
-  if (!needsDraft && !owned.length && !queued.length) return null;
+  if (!needsDraft && !owned.length && !queued.length && !armed) return null;
 
   const phase = snap.phase;
   const fx = phase.kind === "clue" ? phase.effects : undefined;
   const myTurn = snap.answeringTeam === myTeam.id;
   const usable = (p: PowerType) => {
+    if (POWERS[p].timing === "anytime") return true;
     if (POWERS[p].timing === "board") return phase.kind === "board" && !queued.some((q) => q.power === p);
     if (!myTurn) return false;
     if (p === "second") return !fx?.second.includes(myTeam.id) && !fx?.retried.includes(myTeam.id);
@@ -769,6 +783,14 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
             </div>
           );
         })}
+        {armed && (
+          <div className="animate-pop flex min-w-36 shrink-0 flex-col items-start border-2 border-dashed border-coral bg-coral/15 p-2.5 text-left">
+            <span className="text-sm font-semibold">
+              ✓ {POWERS.steal.icon} {POWERS.steal.name} armed
+            </span>
+            <span className="text-xs text-cream/80">Secret · goes off when another team answers</span>
+          </div>
+        )}
         {owned.map((p) => {
           const info = POWERS[p];
           const can = me.leader && usable(p) && !busy;
@@ -787,16 +809,20 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
               }`}
             >
               <span className="text-sm font-medium">
-                {info.icon} {info.name} {(myTeam.powers?.[p] ?? 0) > 1 && <span className="text-muted">×{myTeam.powers?.[p]}</span>}
+                {info.icon} {info.name} {left(p) > 1 && <span className="text-muted">×{left(p)}</span>}
               </span>
               <span className={`text-xs ${selected ? "text-cream" : "text-muted"}`}>
                 {activating === p
                   ? "Activating…"
                   : targeting === p
                     ? "Pick a team below"
-                    : info.timing === "board"
-                      ? "Use before a question is picked"
-                      : "Use when your team is answering"}
+                    : info.timing === "anytime"
+                      ? armed
+                        ? "One already armed"
+                        : "Use any time · stays secret"
+                      : info.timing === "board"
+                        ? "Use before a question is picked"
+                        : "Use when your team is answering"}
               </span>
             </button>
           );
@@ -859,6 +885,8 @@ function powerErrorMessage(code: string, power: PowerType, targetName?: string):
       return "A 1v1 is lined up for the next question, so you can't send a random one yet.";
     case "rng_empty":
       return "There are no questions left to draw from.";
+    case "steal_armed":
+      return "Your Steal is already armed. It goes off the next time another team answers.";
     case "timeout":
       return "Lost connection to the room. Check your signal and try again.";
     default:

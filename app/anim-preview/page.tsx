@@ -26,6 +26,8 @@ const notices: Record<string, PowerNotice> = {
   bet: { id: "5", kind: "used", power: "bet", teamId: "a" },
   duel: { id: "7", kind: "used", power: "duel", teamId: "a", targetTeamId: "c", duel: { name: "Jayden", targetName: "Jackie" } },
   settled: { id: "6", kind: "settled", power: "bet", teamId: "a", targetTeamId: "b", won: true, amount: 400 },
+  steal: { id: "8", kind: "stolen", power: "steal", teamId: "c", targetTeamId: "b", amount: 600 },
+  stealneg: { id: "9", kind: "stolen", power: "steal", teamId: "c", targetTeamId: "b", amount: -600 },
 };
 
 function Preview() {

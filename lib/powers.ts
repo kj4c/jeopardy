@@ -4,8 +4,11 @@ export type PowerInfo = {
   id: PowerType;
   name: string;
   icon: string;
-  /** "board": used before the next question is picked. "answer": used once your team is answering. */
-  timing: "board" | "answer";
+  /**
+   * "board": used before the next question is picked. "answer": used once your team is answering.
+   * "anytime": whenever you like, even mid-question.
+   */
+  timing: "board" | "answer" | "anytime";
   description: string;
   needsTarget?: boolean;
 };
@@ -50,6 +53,14 @@ export const POWERS: Record<PowerType, PowerInfo> = {
     description:
       "Send another team a random question they must answer, whatever it's worth. Others can only buzz in after they answer.",
     needsTarget: true,
+  },
+  steal: {
+    id: "steal",
+    name: "Steal",
+    icon: "🥷",
+    timing: "anytime",
+    description:
+      "Secret. The next time another team answers, you get their points instead, or their loss if they get it wrong. Nobody knows until it happens.",
   },
   second: {
     id: "second",

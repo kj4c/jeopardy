@@ -5,14 +5,16 @@ import { POWERS } from "@/lib/powers";
 import type { PowerNotice, Team } from "@/lib/types";
 import { ANIMATED_POWERS, animationLength, PowerAnimation } from "./PowerAnimations";
 
-const SHOW_MS = { used: 5000, lost: 5000, found: 6000, missed: 6000, settled: 5000 };
+const SHOW_MS = { used: 5000, lost: 5000, found: 6000, missed: 6000, settled: 5000, stolen: 5000 };
 /** A newer notice replaces the current one after this long. */
 const MIN_SHOW_MS = 1500;
 
-const isAnimated = (n: PowerNotice) => n.kind === "settled" || (n.kind === "used" && ANIMATED_POWERS.has(n.power));
+const isAnimated = (n: PowerNotice) =>
+  n.kind === "settled" || n.kind === "stolen" || (n.kind === "used" && ANIMATED_POWERS.has(n.power));
 const showFor = (n: PowerNotice) => (isAnimated(n) ? animationLength(n) : SHOW_MS[n.kind]);
-/** The random question slot machine always finishes; other animations can be cut short by a newer notice. */
-const minShowFor = (n: PowerNotice) => (n.power === "rng" && n.kind === "used" ? animationLength(n) : isAnimated(n) ? 2000 : MIN_SHOW_MS);
+/** The slot machine and the Steal reveal always finish; other animations can be cut short by a newer notice. */
+const minShowFor = (n: PowerNotice) =>
+  (n.power === "rng" && n.kind === "used") || n.kind === "stolen" ? animationLength(n) : isAnimated(n) ? 2000 : MIN_SHOW_MS;
 const FADE_MS = 350;
 const SUSPENSE_MS = 1400;
 

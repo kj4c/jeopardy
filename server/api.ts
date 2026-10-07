@@ -18,7 +18,7 @@ import {
   verifyPassword,
 } from "./auth";
 import * as db from "./db";
-import { dropRoom, getLiveState, publicSnapshot, syncBoard, syncRoom } from "./rooms";
+import { dropRoom, getLiveState, publicSnapshot, syncBoard, syncRoom, withoutSecrets } from "./rooms";
 
 /** Sends games back to the board if the clue they had open was deleted in the editor. */
 function closeDeletedClues(board: Board) {
@@ -313,7 +313,8 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
         return send(res, 401, { error: "This board is locked", board: { slug: roomBoard.slug, name: roomBoard.name } });
       }
       if (!sub && method === "GET") {
-        return send(res, 200, { room: { ...room, state: getLiveState(id) ?? room.state }, board: roomBoard });
+        const state = getLiveState(id) ?? room.state;
+        return send(res, 200, { room: { ...room, state: room.mode === "live" ? withoutSecrets(state) : state }, board: roomBoard });
       }
       if (sub === "state" && method === "PUT") {
         const { state } = await readJson<{ state: GameState }>(req);
