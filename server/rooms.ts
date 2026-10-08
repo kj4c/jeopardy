@@ -1,6 +1,6 @@
 import type { Server, Socket } from "socket.io";
-import { findClue } from "../lib/board";
-import { answeringTeam, ddMaxWager, finalMaxWager, forcedTeam, gameReducer, isOut, turnTeam } from "../lib/gameReducer";
+import { CLUE_INTRO_MS, findClue } from "../lib/board";
+import { answeringTeam, buzzedTurn, ddMaxWager, finalMaxWager, forcedTeam, gameReducer, isOut, turnTeam } from "../lib/gameReducer";
 import { isPowerType, POWERS } from "../lib/powers";
 import type {
   Board,
@@ -32,6 +32,8 @@ type LiveRoom = {
   /** Final Jeopardy responses still being typed, by player. Submitted automatically when time runs out. */
   finalDrafts: Map<string, { teamId: string; text: string; by: string; at: number }>;
   finalTimerToken: number;
+  /** The turn the answer clock is running for, started by a buzz-in or by the host. */
+  answer?: { key: string; teamId: string; startedAt: number; totalMs: number };
 };
 
 const MAX_LATENCY_CREDIT_MS = 150;
@@ -106,7 +108,7 @@ function hostSnapshot(lr: LiveRoom): HostSnapshot {
     room: { ...lr.room, state: withoutSecrets(lr.room.state) },
     board: lr.board,
     players: playersList(lr),
-    buzz: lr.buzz,
+    buzz: timedBuzz(lr),
     remotes: remoteCount(lr.room.slug),
   };
 }
@@ -177,7 +179,9 @@ export function revokeRemotes(slug: string) {
   if (lr) broadcast(lr);
 }
 
-export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & { players?: Player[] }): PublicSnapshot {
+export function publicSnapshot(
+  lr: Pick<LiveRoom, "room" | "board" | "buzz" | "answer"> & { players?: Player[] },
+): PublicSnapshot {
   const { room, board } = lr;
   const { state } = room;
   let phase: PublicSnapshot["phase"] = { kind: "board" };
@@ -240,7 +244,7 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
     buzzMode: state.buzzMode ?? "countdown",
     teams: state.teams,
     players: lr.players ?? [],
-    buzz: lr.buzz,
+    buzz: timedBuzz(lr),
     phase,
     powerSettings: state.powerSettings,
     queued: state.queued ?? [],
@@ -249,7 +253,47 @@ export function publicSnapshot(lr: Pick<LiveRoom, "room" | "board" | "buzz"> & {
   };
 }
 
+const MANUAL_ANSWER_SECONDS = 10;
+
+/** Whoever is answering right now, including a picked or forced team, with a key that changes whenever the turn does. */
+function currentTurn(lr: LiveRoom): { teamId: string; key: string } | undefined {
+  const { state, mode } = lr.room;
+  const buzzed = buzzedTurn(state, lr.buzz, mode);
+  if (buzzed) return buzzed;
+  const p = state.phase;
+  const teamId = answeringTeam(state, lr.buzz, mode);
+  return p.kind === "clue" && teamId ? { teamId, key: `${p.clueId}:turn:${teamId}` } : undefined;
+}
+
+/** Starts the answer clock whenever a new team buzzes in (if the setting is on), and stops it once the turn moves on. */
+function syncAnswerClock(lr: LiveRoom) {
+  const seconds = lr.room.state.answerSeconds ?? 0;
+  const buzzed = seconds ? buzzedTurn(lr.room.state, lr.buzz, lr.room.mode) : undefined;
+  if (buzzed) {
+    if (lr.answer?.key !== buzzed.key) lr.answer = { ...buzzed, startedAt: Date.now(), totalMs: seconds * 1000 };
+    return;
+  }
+  if (lr.answer && lr.answer.key !== currentTurn(lr)?.key) lr.answer = undefined;
+}
+
+/** The host starts (or restarts) the answer clock for whoever is answering. */
+function startAnswerClock(lr: LiveRoom) {
+  const turn = currentTurn(lr);
+  if (!turn) return false;
+  const seconds = lr.room.state.answerSeconds || MANUAL_ANSWER_SECONDS;
+  lr.answer = { ...turn, startedAt: Date.now(), totalMs: seconds * 1000 };
+  return true;
+}
+
+function timedBuzz(lr: Pick<LiveRoom, "room" | "buzz" | "answer">): BuzzState {
+  if (!lr.answer) return lr.buzz;
+  const { totalMs } = lr.answer;
+  const leftMs = Math.max(0, lr.answer.startedAt + totalMs - Date.now());
+  return { ...lr.buzz, timer: { teamId: lr.answer.teamId, leftMs, totalMs } };
+}
+
 function broadcast(lr: LiveRoom) {
+  syncAnswerClock(lr);
   const slug = lr.room.slug;
   io.to(`host:${slug}`).emit("host:state", hostSnapshot(lr));
   if (remoteCount(slug)) io.to(`remote:${slug}`).emit("remote:state", remoteSnapshot(lr));
@@ -338,9 +382,21 @@ function applyAction(lr: LiveRoom, action: GameAction) {
   const reshown = action.type === "clue:question" && !action.hidden && after.buzzMode === "instant";
   const forcedDone =
     before.phase.kind === "clue" && after.phase.kind === "clue" && !!forcedTeam(before.phase) && !forcedTeam(after.phase);
-  if (clueChanged || reshown || forcedDone || action.type === "settings:buzz-mode") refreshBuzz(lr);
+  if (clueChanged && action.type === "clue:open") {
+    resetBuzz(lr);
+    const token = lr.countdownToken;
+    setTimeout(() => {
+      if (lr.countdownToken !== token) return;
+      refreshBuzz(lr);
+      if (lr.buzz.status === "armed") broadcast(lr);
+    }, CLUE_INTRO_MS);
+  } else if (clueChanged || reshown || forcedDone || action.type === "settings:buzz-mode") refreshBuzz(lr);
   if (action.type === "clue:unlock") {
     lr.buzz = { ...lr.buzz, buzzes: lr.buzz.buzzes.filter((b) => b.teamId !== action.teamId) };
+  }
+  if ((action.type === "clue:judge" || action.type === "quickfire:judge") && action.correct) {
+    const answerer = lr.buzz.buzzes.find((b) => b.teamId === action.teamId);
+    if (answerer) updatePlayerStats(lr, answerer.teamId, answerer.name, (s) => ({ ...s, correct: s.correct + 1 }));
   }
   if ((after.phase.kind === "clue" || after.phase.kind === "quickfire") && after.phase.resolvedBy) {
     lr.countdownToken++;
@@ -372,6 +428,16 @@ function startCountdown(lr: LiveRoom) {
   setTimeout(() => tick(2), 1000);
   setTimeout(() => tick(1), 2000);
   setTimeout(() => tick(0), 3000);
+}
+
+type PlayerStats = NonNullable<NonNullable<GameState["stats"]>["players"]>[string];
+
+function updatePlayerStats(lr: LiveRoom, teamId: string, name: string, update: (s: PlayerStats) => PlayerStats) {
+  const key = `${teamId}:${name}`;
+  const stats = lr.room.state.stats ?? {};
+  const current = stats.players?.[key] ?? { name, teamId, firsts: 0, correct: 0 };
+  lr.room.state = { ...lr.room.state, stats: { ...stats, players: { ...stats.players, [key]: update(current) } } };
+  scheduleSave(lr);
 }
 
 type BuzzResult = { ok: boolean; reason?: "early" | "penalty" | "locked" | "closed" | "duplicate" | "noteam" };
@@ -406,6 +472,11 @@ function handleBuzz(lr: LiveRoom, player: LivePlayer): BuzzResult {
   const buzzes = [...lr.buzz.buzzes, { playerId: player.id, name: player.name, teamId: player.teamId, time }];
   buzzes.sort((a, b) => a.time - b.time);
   lr.buzz = { ...lr.buzz, buzzes };
+  updatePlayerStats(lr, player.teamId, player.name, (s) => ({
+    ...s,
+    firsts: s.firsts + (buzzes.length === 1 ? 1 : 0),
+    fastest: Math.min(s.fastest ?? Infinity, time),
+  }));
   if (phase.kind === "clue" && lr.room.state.buzzMode === "instant" && !phase.questionHidden && !phase.revealed) {
     lr.room.state = { ...lr.room.state, phase: { ...phase, questionHidden: true } };
     scheduleSave(lr);
@@ -547,6 +618,12 @@ export function attachRooms(server: Server) {
       if (!isHostSocket || !slug) return;
       const lr = live.get(slug);
       if (lr) startCountdown(lr);
+    });
+
+    socket.on("host:answer-timer", () => {
+      if (!isHostSocket || !slug) return;
+      const lr = live.get(slug);
+      if (lr && startAnswerClock(lr)) broadcast(lr);
     });
 
     socket.on("host:buzz-reset", () => {

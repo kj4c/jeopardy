@@ -2,6 +2,7 @@ import { findClue, maxRowValue, newId } from "./board";
 import { isPowerType, POWERS } from "./powers";
 import type {
   Board,
+  BuzzEntry,
   BuzzState,
   CluePhase,
   Duelist,
@@ -61,6 +62,25 @@ export function answeringTeam(state: GameState, buzz: BuzzState, mode: RoomMode)
   if (state.buzzMode !== "instant" && p.pickedBy && !isOut(p, p.pickedBy)) return p.pickedBy;
   if (mode !== "live") return undefined;
   return buzz.buzzes.find((b) => !isOut(p, b.teamId))?.teamId;
+}
+
+/** The team answering because they buzzed first (not a picked or forced team), with a key that changes on every new buzz-in. */
+export function buzzedTurn(state: GameState, buzz: BuzzState, mode: RoomMode): { teamId: string; key: string } | undefined {
+  if (mode !== "live") return undefined;
+  const p = state.phase;
+  let entry: BuzzEntry | undefined;
+  let where = "";
+  if (p.kind === "clue") {
+    if (p.resolvedBy || p.dailyDouble || forcedTeam(p)) return undefined;
+    if (state.buzzMode !== "instant" && p.pickedBy && !isOut(p, p.pickedBy)) return undefined;
+    entry = buzz.buzzes.find((b) => !isOut(p, b.teamId));
+    where = p.clueId;
+  } else if (p.kind === "quickfire") {
+    if (p.resolvedBy) return undefined;
+    entry = buzz.buzzes[0];
+    where = `q${p.index}`;
+  }
+  return entry && { teamId: entry.teamId, key: `${where}:${entry.playerId}:${entry.time}` };
 }
 
 function addPower(teams: Team[], teamId: string, power: PowerType, delta: number): Team[] {
@@ -129,7 +149,7 @@ export function turnTeam(state: GameState): string | undefined {
  * Pure game rules shared by the live server and in-person mode.
  * Returns the same object when an action is not applicable.
  */
-export function gameReducer(state: GameState, action: GameAction, board: Board): GameState {
+function reduce(state: GameState, action: GameAction, board: Board): GameState {
   const { phase } = state;
 
   switch (action.type) {
@@ -201,6 +221,10 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
     case "clue:question":
       if (phase.kind !== "clue" || !!phase.questionHidden === action.hidden) return state;
       return { ...state, phase: { ...phase, questionHidden: action.hidden } };
+    case "settings:answer-timer": {
+      const seconds = Math.max(0, Math.min(60, Math.round(action.seconds) || 0));
+      return (state.answerSeconds ?? 0) === seconds ? state : { ...state, answerSeconds: seconds };
+    }
     case "settings:buzz-mode":
       if ((state.buzzMode ?? "countdown") === action.mode) return state;
       return { ...state, buzzMode: action.mode === "instant" ? "instant" : "countdown" };
@@ -530,6 +554,49 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
         buzzMode: state.buzzMode,
         powerSettings: state.powerSettings,
         turnOrder: state.turnOrder,
+        answerSeconds: state.answerSeconds,
       };
   }
+}
+
+const JUDGES = new Set<GameAction["type"]>(["clue:judge", "quickfire:judge", "final:judge"]);
+
+/** Updates the end-of-game recap: answers, best single gain, lowest score, and steals pulled off. */
+function trackStats(prev: GameState, next: GameState, action: GameAction): GameState {
+  if (next === prev || action.type === "game:reset") return next;
+  const teams = { ...next.stats?.teams };
+  let changed = false;
+  const entry = (id: string) => (teams[id] ??= { right: 0, wrong: 0, best: 0, low: 0, steals: 0 });
+  for (const t of next.teams) {
+    const before = prev.teams.find((p) => p.id === t.id)?.score ?? 0;
+    if (t.score === before) continue;
+    const s = entry(t.id);
+    if (t.score < s.low) teams[t.id] = { ...s, low: t.score };
+    changed = true;
+  }
+  if (JUDGES.has(action.type) && "teamId" in action && "correct" in action) {
+    const s = entry(action.teamId);
+    const gain =
+      (next.teams.find((t) => t.id === action.teamId)?.score ?? 0) -
+      (prev.teams.find((t) => t.id === action.teamId)?.score ?? 0);
+    teams[action.teamId] = {
+      ...s,
+      right: s.right + (action.correct ? 1 : 0),
+      wrong: s.wrong + (action.correct ? 0 : 1),
+      best: Math.max(s.best, gain),
+    };
+    changed = true;
+  }
+  const seen = new Set((prev.powerNotices ?? []).map((n) => n.id));
+  for (const n of next.powerNotices ?? []) {
+    if (seen.has(n.id) || n.kind !== "stolen" || !n.teamId || !(n.amount && n.amount > 0)) continue;
+    const s = entry(n.teamId);
+    teams[n.teamId] = { ...s, steals: s.steals + 1 };
+    changed = true;
+  }
+  return changed ? { ...next, stats: { ...next.stats, teams } } : next;
+}
+
+export function gameReducer(state: GameState, action: GameAction, board: Board): GameState {
+  return trackStats(state, reduce(state, action, board), action);
 }

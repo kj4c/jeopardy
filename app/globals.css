@@ -265,7 +265,8 @@ body {
     opacity: 0;
     transition: opacity 0.3s ease;
   }
-  .tile:hover:not(:disabled)::before {
+  .tile:hover:not(:disabled)::before,
+  .tile-lit::before {
     opacity: 0.9;
   }
   .tile:hover:not(:disabled) {

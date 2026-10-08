@@ -18,6 +18,7 @@ import {
   verifyPassword,
 } from "./auth";
 import * as db from "./db";
+import { GenerateError, generateBoard } from "./generate";
 import { dropRoom, getLiveState, publicSnapshot, revokeRemotes, syncBoard, syncRoom, withoutSecrets } from "./rooms";
 
 /** Sends games back to the board if the clue they had open was deleted in the editor. */
@@ -262,6 +263,14 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
         return send(res, 200, { ok: true }, { "Set-Cookie": boardSessionCookie(board.id, hash) });
       }
       if (sub === "rooms" && method === "GET") return send(res, 200, db.listRooms(board.id));
+      if (sub === "generate" && method === "POST") {
+        try {
+          return send(res, 200, await generateBoard(board.id, await readJson(req)));
+        } catch (err) {
+          if (err instanceof GenerateError) throw new HttpError(err.status, err.message);
+          throw err;
+        }
+      }
       if (!sub && method === "GET") return send(res, 200, board);
       if (!sub && method === "PUT") {
         const saved = db.updateBoard(sanitizeBoard(await readJson<Partial<Board>>(req), board));

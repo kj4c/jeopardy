@@ -1,10 +1,19 @@
 "use client";
 
-import type { GameAction, Team } from "@/lib/types";
+import type { GameAction, GameStats, Team } from "@/lib/types";
 import { GradientBackground } from "../GradientBackground";
+import { GameRecap } from "./GameRecap";
 import { Standings } from "./Standings";
 
-export function EndedView({ teams, dispatch }: { teams: Team[]; dispatch: (a: GameAction) => void }) {
+export function EndedView({
+  teams,
+  stats,
+  dispatch,
+}: {
+  teams: Team[];
+  stats?: GameStats;
+  dispatch: (a: GameAction) => void;
+}) {
   const leader = [...teams].sort((a, b) => b.score - a.score)[0];
   return (
     <div className="animate-fade-up fixed inset-0 z-40 flex flex-col bg-ink">
@@ -19,6 +28,7 @@ export function EndedView({ teams, dispatch }: { teams: Team[]; dispatch: (a: Ga
         <div className="m-auto flex w-full flex-col items-center gap-8">
           <p className="font-display gradient-text text-[clamp(2rem,5vw,4rem)] italic">Thanks for playing</p>
           <Standings teams={teams} />
+          <GameRecap stats={stats} teams={teams} />
           <button
             className="btn btn-ghost px-8"
             onClick={() => confirm("Reset all scores and tiles for a new game?") && dispatch({ type: "game:reset" })}

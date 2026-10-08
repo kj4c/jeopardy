@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { formatScore } from "@/lib/board";
 import { finalMaxWager } from "@/lib/gameReducer";
-import type { Board, FinalPhase, GameAction, RoomMode, Team } from "@/lib/types";
+import type { Board, FinalPhase, GameAction, GameStats, RoomMode, Team } from "@/lib/types";
 import { GradientBackground } from "../GradientBackground";
 import { MediaRenderer } from "../MediaRenderer";
+import { GameRecap } from "./GameRecap";
 import { Standings } from "./Standings";
 
 export function FinalView({
@@ -14,6 +15,7 @@ export function FinalView({
   teams,
   mode,
   canQuickfire,
+  stats,
   dispatch,
 }: {
   board: Board;
@@ -21,6 +23,7 @@ export function FinalView({
   teams: Team[];
   mode: RoomMode;
   canQuickfire: boolean;
+  stats?: GameStats;
   dispatch: (a: GameAction) => void;
 }) {
   const fj = board.finalJeopardy;
@@ -125,6 +128,7 @@ export function FinalView({
         {phase.step === "done" && (
           <>
             <Standings teams={teams} title="Leading after Final Kashpot" />
+            <GameRecap stats={stats} teams={teams} />
             <div className="flex flex-wrap justify-center gap-3">
               <button className="btn btn-primary px-8" onClick={() => dispatch({ type: "game:end" })}>
                 End game

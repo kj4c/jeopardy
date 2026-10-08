@@ -209,6 +209,16 @@ export type GameState = {
    * power count until it goes off, so nobody can tell it was used.
    */
   steals?: string[];
+  /** Seconds a team gets to answer after buzzing in. Off when unset or 0. */
+  answerSeconds?: number;
+  stats?: GameStats;
+};
+
+/** Tallies for the end-of-game recap. Cleared by a game reset. */
+export type GameStats = {
+  teams?: Record<string, { right: number; wrong: number; best: number; low: number; steals: number }>;
+  /** Live rooms only, keyed by `${teamId}:${name}`. `fastest` is the quickest buzz in ms after buzzers opened. */
+  players?: Record<string, { name: string; teamId: string; firsts: number; correct: number; fastest?: number }>;
 };
 
 export type RoomMode = "live" | "local";
@@ -245,6 +255,8 @@ export type BuzzState = {
   status: "idle" | "countdown" | "armed";
   count?: number;
   buzzes: BuzzEntry[];
+  /** Answer clock for the team that buzzed in. `leftMs` is measured when the snapshot is sent, so phone clocks don't matter. */
+  timer?: { teamId: string; leftMs: number; totalMs: number };
 };
 
 /** What the host screen receives in live mode. */
@@ -357,6 +369,7 @@ export type GameAction =
   /** Lets a locked-out team buzz and answer again. Points already lost stay lost. */
   | { type: "clue:unlock"; teamId: string }
   | { type: "settings:buzz-mode"; mode: BuzzMode }
+  | { type: "settings:answer-timer"; seconds: number }
   | { type: "clue:close"; markUsed: boolean }
   | { type: "clue:judge"; teamId: string; correct: boolean }
   /** Nobody (else) answers: ends the clue with no points. */

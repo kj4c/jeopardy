@@ -90,6 +90,9 @@ export function slugify(name: string): string {
     .slice(0, 60);
 }
 
+/** How long the dollar-value intro plays before a clue. Instant-mode buzzers open only after it ends. */
+export const CLUE_INTRO_MS = 1500;
+
 export const TEAM_COLORS = ["#ff4f9a", "#3b6bff", "#f5a14a", "#22d3a6", "#a66bff", "#ff6b5b", "#e8d44d", "#38bdf8"];
 
 export function initialGameState(teams: { name: string; color: string }[]): GameState {

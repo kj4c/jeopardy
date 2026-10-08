@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Children, useCallback, useEffect, useRef, useState } from "react";
+import { AnswerClock } from "@/components/AnswerClock";
 import { GradientBackground } from "@/components/GradientBackground";
 import { PowerNoticeToast } from "@/components/PowerNoticeToast";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -493,6 +494,11 @@ function Buzzer({
     prevStatus.current = buzz.status;
   }, [buzz.status]);
 
+  const firstIn = buzz.buzzes[0]?.playerId === playerId;
+  useEffect(() => {
+    if (firstIn) vibrate([120, 60, 120, 60, 250]);
+  }, [firstIn]);
+
   const press = useCallback(async () => {
     if (pending || myIndex !== -1 || locked) return;
     setPending(true);
@@ -603,6 +609,14 @@ function Buzzer({
         </span>
       </button>
       <p className="min-h-6 text-lg text-cream/80">{sub}</p>
+      {buzz.timer && (
+        <div className="-mt-4 flex w-full flex-col items-center gap-1">
+          <p className="label">
+            {buzz.timer.teamId === myTeam.id ? "Your team's time" : `${snap.teams.find((t) => t.id === buzz.timer?.teamId)?.name ?? "Their"} time`}
+          </p>
+          <AnswerClock timer={buzz.timer} color={snap.teams.find((t) => t.id === buzz.timer?.teamId)?.color} />
+        </div>
+      )}
     </div>
   );
 }
@@ -761,6 +775,43 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
     }
   }
 
+  const powerButton = (p: PowerType) => {
+    const info = POWERS[p];
+    const can = me.leader && usable(p) && !busy;
+    const selected = activating === p || targeting === p;
+    return (
+      <button
+        key={p}
+        disabled={!can && !selected}
+        onClick={() => (info.needsTarget ? setTargeting(targeting === p ? null : p) : use(p))}
+        className={`flex min-w-36 shrink-0 flex-col items-start border-2 p-2.5 text-left transition active:scale-[0.97] ${
+          selected
+            ? "scale-[1.03] border-coral bg-coral/30 shadow-[0_0_24px_-6px_var(--color-coral)]"
+            : can
+              ? "border-coral/60 bg-coral/10"
+              : "border-line-strong opacity-60"
+        }`}
+      >
+        <span className="text-sm font-medium">
+          {info.icon} {info.name} {left(p) > 1 && <span className="text-muted">×{left(p)}</span>}
+        </span>
+        <span className={`text-xs ${selected ? "text-cream" : "text-muted"}`}>
+          {activating === p
+            ? "Activating…"
+            : targeting === p
+              ? "Pick a team below"
+              : info.timing === "anytime"
+                ? armed
+                  ? "One already armed"
+                  : "Use any time · stays secret"
+                : info.timing === "board"
+                  ? "Use before a question is picked"
+                  : "Use when your team is answering"}
+        </span>
+      </button>
+    );
+  };
+
   if (needsDraft) {
     return me.leader ? (
       <DraftPicker enabled={settings!.enabled} count={settings!.draftCount} />
@@ -777,67 +828,37 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
         <p className="label">Team power-ups</p>
         {!me.leader && leader && <p className="text-xs text-muted">Only {leader.name} can use them</p>}
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {queued.map((q) => {
-          const info = POWERS[q.power];
-          const target = snap.teams.find((t) => t.id === q.targetTeamId);
-          return (
-            <div
-              key={`q-${q.power}`}
-              className="animate-pop flex min-w-36 shrink-0 flex-col items-start border-2 border-coral bg-coral/25 p-2.5 text-left"
-            >
+      <div className="flex flex-col gap-2.5">
+        <PowerGroup title="Before picking a question" now={phase.kind === "board"}>
+          {queued.map((q) => {
+            const info = POWERS[q.power];
+            const target = snap.teams.find((t) => t.id === q.targetTeamId);
+            return (
+              <div
+                key={`q-${q.power}`}
+                className="animate-pop flex min-w-36 shrink-0 flex-col items-start border-2 border-coral bg-coral/25 p-2.5 text-left"
+              >
+                <span className="text-sm font-semibold">
+                  ✓ {info.icon} {info.name}
+                  {target && <span className="font-normal"> → {target.name}</span>}
+                </span>
+                <span className="text-xs text-cream/80">Active for the next question</span>
+              </div>
+            );
+          })}
+          {owned.filter((p) => POWERS[p].timing === "board").map(powerButton)}
+        </PowerGroup>
+        <PowerGroup title="Before answering" now={phase.kind === "clue"}>
+          {armed && (
+            <div className="animate-pop flex min-w-36 shrink-0 flex-col items-start border-2 border-dashed border-coral bg-coral/15 p-2.5 text-left">
               <span className="text-sm font-semibold">
-                ✓ {info.icon} {info.name}
-                {target && <span className="font-normal"> → {target.name}</span>}
+                ✓ {POWERS.steal.icon} {POWERS.steal.name} armed
               </span>
-              <span className="text-xs text-cream/80">Active for the next question</span>
+              <span className="text-xs text-cream/80">Secret · goes off when another team answers</span>
             </div>
-          );
-        })}
-        {armed && (
-          <div className="animate-pop flex min-w-36 shrink-0 flex-col items-start border-2 border-dashed border-coral bg-coral/15 p-2.5 text-left">
-            <span className="text-sm font-semibold">
-              ✓ {POWERS.steal.icon} {POWERS.steal.name} armed
-            </span>
-            <span className="text-xs text-cream/80">Secret · goes off when another team answers</span>
-          </div>
-        )}
-        {owned.map((p) => {
-          const info = POWERS[p];
-          const can = me.leader && usable(p) && !busy;
-          const selected = activating === p || targeting === p;
-          return (
-            <button
-              key={p}
-              disabled={!can && !selected}
-              onClick={() => (POWERS[p].needsTarget ? setTargeting(targeting === p ? null : p) : use(p))}
-              className={`flex min-w-36 shrink-0 flex-col items-start border-2 p-2.5 text-left transition active:scale-[0.97] ${
-                selected
-                  ? "scale-[1.03] border-coral bg-coral/30 shadow-[0_0_24px_-6px_var(--color-coral)]"
-                  : can
-                    ? "border-coral/60 bg-coral/10"
-                    : "border-line-strong opacity-60"
-              }`}
-            >
-              <span className="text-sm font-medium">
-                {info.icon} {info.name} {left(p) > 1 && <span className="text-muted">×{left(p)}</span>}
-              </span>
-              <span className={`text-xs ${selected ? "text-cream" : "text-muted"}`}>
-                {activating === p
-                  ? "Activating…"
-                  : targeting === p
-                    ? "Pick a team below"
-                    : info.timing === "anytime"
-                      ? armed
-                        ? "One already armed"
-                        : "Use any time · stays secret"
-                      : info.timing === "board"
-                        ? "Use before a question is picked"
-                        : "Use when your team is answering"}
-              </span>
-            </button>
-          );
-        })}
+          )}
+          {owned.filter((p) => POWERS[p].timing !== "board").map(powerButton)}
+        </PowerGroup>
       </div>
       {(targeting === "block" || targeting === "rng") && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -864,6 +885,19 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
       )}
       {error && <p className="mt-2 text-sm text-bad">{error}</p>}
     </section>
+  );
+}
+
+function PowerGroup({ title, now, children }: { title: string; now: boolean; children: React.ReactNode }) {
+  if (!Children.toArray(children).length) return null;
+  return (
+    <div>
+      <p className={`mb-1.5 flex items-center gap-2 text-xs ${now ? "text-cream" : "text-muted"}`}>
+        {title}
+        {now && <span className="label !text-[0.6rem] !text-coral">Now</span>}
+      </p>
+      <div className="flex gap-2 overflow-x-auto pb-1">{children}</div>
+    </div>
   );
 }
 

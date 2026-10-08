@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GradientBackground } from "@/components/GradientBackground";
 import { MediaField } from "@/components/MediaField";
 import { Modal } from "@/components/Modal";
+import { QuickFill } from "@/components/QuickFill";
 import { StartGameDialog } from "@/components/StartGameDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
@@ -19,6 +20,7 @@ type Selection = { kind: "clue"; categoryId: string; clueId: string } | { kind: 
 export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [fillOpen, setFillOpen] = useState(false);
   const [returnRoom, setReturnRoom] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -206,6 +208,9 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
             {status === "saved" ? "Saved" : status === "saving" ? "Saving…" : status === "error" ? "Save failed" : "Editing"}
           </span>
           <ThemeToggle />
+          <button className="btn btn-ghost btn-sm" onClick={() => setFillOpen(true)}>
+            Quick fill
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={() => importRef.current?.click()}>
             Import
           </button>
@@ -565,6 +570,22 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
       </div>
 
       {starting && <StartGameDialog boardId={board.id} boardName={board.name} onClose={() => setStarting(false)} />}
+      {fillOpen && (
+        <QuickFill
+          board={board}
+          onClose={() => setFillOpen(false)}
+          onApply={(fill) => {
+            update((b) => ({
+              ...b,
+              categories: fill.categories,
+              rowValues: fill.rowValues,
+              finalJeopardy: fill.final?.question ? fill.final : b.finalJeopardy,
+            }));
+            setSelection(null);
+            setFillOpen(false);
+          }}
+        />
+      )}
       {passwordOpen && (
         <PasswordDialog
           boardId={board.id}

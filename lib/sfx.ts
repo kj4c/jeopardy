@@ -54,6 +54,17 @@ export const sfx = {
     tone(260, 0, 0.16, "triangle", 0.6, 90);
     tone(1800, 0, 0.03, "square", 0.15);
   },
+  /** A tile flying up to fill the screen. */
+  whoosh() {
+    tone(180, 0, 0.45, "triangle", 0.35, 720);
+    tone(360, 0.05, 0.4, "sine", 0.15, 1440);
+  },
+  /** The dollar value landing. */
+  chime() {
+    tone(784, 0, 0.5, "triangle", 0.3);
+    tone(1175, 0.05, 0.6, "triangle", 0.22);
+    tone(1568, 0.1, 0.7, "sine", 0.14);
+  },
   /** The last reel lands. */
   jackpot() {
     tone(260, 0, 0.16, "triangle", 0.6, 90);

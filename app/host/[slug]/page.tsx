@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GradientBackground } from "@/components/GradientBackground";
 import { BuzzModeToggle } from "@/components/host/BuzzModeToggle";
+import { ClueIntro } from "@/components/host/ClueIntro";
 import { ClueView } from "@/components/host/ClueView";
 import { CountdownOverlay } from "@/components/host/CountdownOverlay";
 import { EndedView } from "@/components/host/EndedView";
@@ -40,6 +41,9 @@ export default function HostPage() {
   const headerRef = useRef<HTMLElement>(null);
   const [intro, setIntro] = useState(false);
   const endIntro = useCallback(() => setIntro(false), []);
+  const [clueIntro, setClueIntro] = useState<{ clueId: string; from: DOMRect; revealed: boolean } | null>(null);
+  const revealClue = useCallback(() => setClueIntro((c) => c && { ...c, revealed: true }), []);
+  const endClueIntro = useCallback(() => setClueIntro(null), []);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -99,8 +103,10 @@ export default function HostPage() {
     prevBuzz.current = buzz;
     if (buzz.status === "countdown" && buzz.count !== prev.count) sounds.tick();
     if (buzz.status === "armed" && prev.status === "countdown") flashGo();
-    if (buzz.buzzes.length > 0 && prev.buzzes.length === 0) sounds.buzz();
-  }, [buzz, flashGo]);
+    if (buzz.buzzes.length > 0 && prev.buzzes.length === 0) {
+      sounds.buzz(Math.max(0, room?.state.teams.findIndex((t) => t.id === buzz.buzzes[0].teamId) ?? 0));
+    }
+  }, [buzz, flashGo, room?.state.teams]);
 
   const phase = room?.state.phase;
   const ddClueId = phase?.kind === "clue" && phase.dailyDouble ? phase.clueId : null;
@@ -163,6 +169,10 @@ export default function HostPage() {
   const countdownMode = (room.state.buzzMode ?? "countdown") === "countdown";
   const nextTurn = room.state.teams.find((t) => t.id === turnTeam(room.state));
   const powersOn = room.state.powerSettings?.enabled.length ?? 0;
+  const introClue =
+    phase.kind === "clue" && !phase.dailyDouble && clueIntro?.clueId === phase.clueId
+      ? findClue(board, phase.clueId)
+      : undefined;
 
   return (
     <main className="flex h-dvh flex-col overflow-hidden">
@@ -271,6 +281,26 @@ export default function HostPage() {
                   </button>
                 )}
               </Setting>
+              {live && (
+                <Setting label="Answer timer">
+                  <div
+                    className="flex border border-line-strong text-sm"
+                    title="Seconds a team gets to answer after buzzing in. When off, start a 10s timer yourself from the answer bar."
+                  >
+                    {[0, 5, 10, 15].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => dispatch({ type: "settings:answer-timer", seconds: s })}
+                        className={`px-3 py-1.5 transition ${
+                          (room.state.answerSeconds ?? 0) === s ? "bg-coral/20 text-cream" : "text-muted hover:text-cream"
+                        }`}
+                      >
+                        {s ? `${s}s` : "Off"}
+                      </button>
+                    ))}
+                  </div>
+                </Setting>
+              )}
               <Setting label="Host phone">
                 <button
                   className="btn btn-ghost btn-sm"
@@ -321,7 +351,10 @@ export default function HostPage() {
           <PlayBoard
             board={board}
             used={room.state.used}
-            onOpen={(clueId) => dispatch({ type: "clue:open", clueId })}
+            onOpen={(clueId, from) => {
+              setClueIntro({ clueId, from, revealed: false });
+              dispatch({ type: "clue:open", clueId });
+            }}
             onUnuse={(clueId) => dispatch({ type: "clue:unuse", clueId })}
           />
         </div>
@@ -345,7 +378,17 @@ export default function HostPage() {
         queued={room.state.queued}
       />
 
-      {phase.kind === "clue" && (
+      {introClue && clueIntro && (
+        <ClueIntro
+          key={clueIntro.clueId}
+          value={introClue.value}
+          category={introClue.category.title}
+          from={clueIntro.from}
+          onReveal={revealClue}
+          onDone={endClueIntro}
+        />
+      )}
+      {phase.kind === "clue" && (!introClue || clueIntro?.revealed) && (
         <ClueView
           board={board}
           phase={phase}
@@ -356,6 +399,8 @@ export default function HostPage() {
           dispatch={dispatch}
           onCountdown={live ? game.countdown : runLocalCountdown}
           onResetBuzz={game.resetBuzz}
+          onStartTimer={live ? game.startAnswerTimer : undefined}
+          timerSeconds={room.state.answerSeconds || 10}
           onOpenPowerups={() => setPowersOpen(true)}
         />
       )}
@@ -366,6 +411,7 @@ export default function HostPage() {
           teams={room.state.teams}
           mode={room.mode}
           canQuickfire={quickfireLeft > 0}
+          stats={room.state.stats}
           dispatch={dispatch}
         />
       )}
@@ -378,9 +424,11 @@ export default function HostPage() {
           buzz={buzz}
           canFinal={canFinal}
           dispatch={dispatch}
+          onStartTimer={live ? game.startAnswerTimer : undefined}
+          timerSeconds={room.state.answerSeconds || 10}
         />
       )}
-      {phase.kind === "ended" && <EndedView teams={room.state.teams} dispatch={dispatch} />}
+      {phase.kind === "ended" && <EndedView teams={room.state.teams} stats={room.state.stats} dispatch={dispatch} />}
       {powersOpen && (
         <PowerupsDialog
           settings={room.state.powerSettings}

@@ -10,7 +10,7 @@ export function PlayBoard({
 }: {
   board: Board;
   used: string[];
-  onOpen: (clueId: string) => void;
+  onOpen: (clueId: string, tile: DOMRect) => void;
   onUnuse: (clueId: string) => void;
 }) {
   const usedSet = new Set(used);
@@ -36,7 +36,7 @@ export function PlayBoard({
             <button
               key={clue.id}
               disabled={isUsed}
-              onClick={() => onOpen(clue.id)}
+              onClick={(e) => onOpen(clue.id, e.currentTarget.getBoundingClientRect())}
               onContextMenu={(e) => {
                 if (!isUsed) return;
                 e.preventDefault();

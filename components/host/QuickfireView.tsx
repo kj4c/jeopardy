@@ -2,10 +2,12 @@
 
 import { useEffect } from "react";
 import { formatScore } from "@/lib/board";
+import { sounds } from "@/lib/sound";
 import type { Board, BuzzState, GameAction, QuickfirePhase, RoomMode, Team } from "@/lib/types";
+import { AnswerClock } from "../AnswerClock";
 import { GradientBackground } from "../GradientBackground";
 import { MediaRenderer } from "../MediaRenderer";
-import { JudgeChip } from "./ClueView";
+import { JudgeChip, StartTimerButton } from "./ClueView";
 import { Standings } from "./Standings";
 
 export function QuickfireView({
@@ -16,6 +18,8 @@ export function QuickfireView({
   buzz,
   canFinal,
   dispatch,
+  onStartTimer,
+  timerSeconds,
 }: {
   board: Board;
   phase: QuickfirePhase;
@@ -24,6 +28,8 @@ export function QuickfireView({
   buzz: BuzzState;
   canFinal: boolean;
   dispatch: (a: GameAction) => void;
+  onStartTimer?: () => void;
+  timerSeconds: number;
 }) {
   const qf = board.quickfire;
   const total = qf?.questions.length ?? 0;
@@ -160,9 +166,18 @@ export function QuickfireView({
 
       {!done && !phase.resolvedBy && (
         <footer className="border-t border-line bg-surface px-6 py-4">
-          <p className="label mb-3 text-center !text-sm">
-            {firstTeam ? `${firstTeam.name} is answering` : live ? "Buzzers open" : "Who answered?"}
-          </p>
+          <div className="relative mb-3 flex items-center justify-center">
+            {buzz.timer && buzz.timer.teamId === firstTeam?.id ? (
+              <div className="absolute left-0 w-[30%]">
+                <AnswerClock timer={buzz.timer} color={firstTeam.color} onTimeUp={sounds.timeUp} />
+              </div>
+            ) : (
+              firstTeam && onStartTimer && <StartTimerButton seconds={timerSeconds} onClick={onStartTimer} />
+            )}
+            <p className="label text-center !text-sm">
+              {firstTeam ? `${firstTeam.name} is answering` : live ? "Buzzers open" : "Who answered?"}
+            </p>
+          </div>
           <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${teams.length}, minmax(0, 1fr))` }}>
             {teams.map((t) => (
               <JudgeChip

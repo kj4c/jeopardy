@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { findClue, formatScore } from "@/lib/board";
 import { ddMaxWager, isOut } from "@/lib/gameReducer";
 import { POWERS } from "@/lib/powers";
+import { sounds } from "@/lib/sound";
 import type {
   Board,
   BuzzEntry,
@@ -15,6 +16,7 @@ import type {
   RoomMode,
   Team,
 } from "@/lib/types";
+import { AnswerClock } from "../AnswerClock";
 import { GradientBackground } from "../GradientBackground";
 import { MediaRenderer } from "../MediaRenderer";
 import { BuzzModeToggle } from "./BuzzModeToggle";
@@ -35,6 +37,8 @@ export function ClueView({
   dispatch,
   onCountdown,
   onResetBuzz,
+  onStartTimer,
+  timerSeconds,
   onOpenPowerups,
 }: {
   board: Board;
@@ -46,6 +50,8 @@ export function ClueView({
   dispatch: (a: GameAction) => void;
   onCountdown: () => void;
   onResetBuzz: () => void;
+  onStartTimer?: () => void;
+  timerSeconds: number;
   onOpenPowerups: () => void;
 }) {
   const found = findClue(board, phase.clueId);
@@ -69,6 +75,7 @@ export function ClueView({
   const teamName = (id: string) => teams.find((t) => t.id === id);
   const currentTeam = pickedPending ? pickedTeam : current ? teams.find((t) => t.id === current.teamId) : undefined;
   const questionHidden = !!phase.questionHidden && !phase.revealed && !phase.resolvedBy;
+  const timer = buzz.timer && buzz.timer.teamId === currentTeam?.id ? buzz.timer : undefined;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -289,6 +296,13 @@ export function ClueView({
                 <p className="label text-center !text-sm">
                   {dd ? "Judge the Daily Double" : currentTeam ? `${currentTeam.name} is answering` : "Who answered?"}
                 </p>
+                {timer ? (
+                  <div className="absolute left-0 w-[30%]">
+                    <AnswerClock timer={timer} color={currentTeam?.color} onTimeUp={sounds.timeUp} />
+                  </div>
+                ) : (
+                  !dd && currentTeam && onStartTimer && <StartTimerButton seconds={timerSeconds} onClick={onStartTimer} />
+                )}
                 <button
                   className="btn btn-ghost btn-sm absolute right-0"
                   onClick={() => dispatch({ type: "clue:skip" })}
@@ -561,6 +575,14 @@ function TeamButton({ team, onClick }: { team: Team; onClick: () => void }) {
       style={{ borderColor: team.color, boxShadow: `inset 0 -3px 0 ${team.color}` }}
     >
       {team.name}
+    </button>
+  );
+}
+
+export function StartTimerButton({ seconds, onClick }: { seconds: number; onClick: () => void }) {
+  return (
+    <button className="btn btn-ghost btn-sm absolute left-0" onClick={onClick} title="Give the answering team a countdown, shown here and on phones">
+      ⏱ Start {seconds}s timer
     </button>
   );
 }
