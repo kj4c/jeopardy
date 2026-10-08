@@ -99,13 +99,22 @@ function awardHiddenPower(state: GameState, board: Board, teamId: string | undef
   );
 }
 
-/** Announces Doubles wasted by teams that never answered. Call once, as the clue ends. */
-function lostDoubles(state: GameState): GameState {
+/**
+ * Announces Doubles wasted by teams that never answered, and gives back Bets that no other team answered to settle.
+ * Call once, as the clue ends.
+ */
+function endOfClue(state: GameState): GameState {
   const { phase } = state;
   if (phase.kind !== "clue" || phase.dailyDouble) return state;
   const lost = (phase.effects?.doubled ?? []).filter((id) => !phase.answered?.includes(id));
+  const unsettled = phase.effects?.bets ?? [];
+  let teams = state.teams;
+  for (const id of unsettled) teams = addPower(teams, id, "bet", 1);
+  const next: GameState = unsettled.length
+    ? { ...state, teams, phase: { ...phase, effects: { ...phase.effects!, bets: [] } } }
+    : state;
   return withNotices(
-    state,
+    next,
     ...lost.map((id) => ({ ...notice(id, "double", "lost"), detail: "They didn't answer the question." })),
   );
 }
@@ -210,7 +219,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       if (phase.kind !== "clue") return state;
       let next = state;
       if (action.markUsed) {
-        if (!phase.resolvedBy) next = lostDoubles(next);
+        if (!phase.resolvedBy) next = endOfClue(next);
         next = awardHiddenPower(next, board, undefined, true);
       }
       const used =
@@ -223,7 +232,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
     case "clue:skip": {
       if (phase.kind !== "clue" || phase.resolvedBy) return state;
       const used = state.used.includes(phase.clueId) ? state.used : [...state.used, phase.clueId];
-      const next = lostDoubles(state);
+      const next = endOfClue(state);
       return awardHiddenPower({ ...next, used, phase: { ...phase, revealed: true, resolvedBy: "none" } }, board, undefined, true);
     }
     case "settings:turn-order": {
@@ -251,9 +260,11 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       const rival = fx?.duel?.find((d) => d.teamId !== team)?.teamId;
       let teams = state.teams;
       const delta = !fx?.duel || action.correct ? (action.correct ? amount : -amount) * multiplier : 0;
-      const thieves = delta
-        ? (state.steals ?? []).filter((id) => id !== team && state.teams.some((t) => t.id === id))
-        : [];
+      // Steals are kept in the order they were armed; only the earliest goes off, the rest wait for the next answer.
+      const firstThief = delta
+        ? (state.steals ?? []).find((id) => id !== team && state.teams.some((t) => t.id === id))
+        : undefined;
+      const thieves = firstThief ? [firstThief] : [];
       const betNotices: PowerNotice[] = [];
       if (thieves.length) {
         for (const thief of thieves) {
@@ -283,7 +294,7 @@ export function gameReducer(state: GameState, action: GameAction, board: Board):
       const finder = action.correct ? team : undefined;
       if (action.correct || dd || duelOver) {
         const used = state.used.includes(phase.clueId) ? state.used : [...state.used, phase.clueId];
-        const next = lostDoubles(
+        const next = endOfClue(
           withNotices(
             {
               ...state,

@@ -531,10 +531,16 @@ export function attachRooms(server: Server) {
       broadcast(lr);
     });
 
-    socket.on("host:action", (action: GameAction) => {
+    socket.on("host:action", (action: GameAction, ack?: (res: unknown) => void) => {
       if (!isHostSocket || !slug) return;
       const lr = live.get(slug);
-      if (lr && action && typeof action.type === "string" && applyAction(lr, action)) broadcast(lr);
+      if (!lr || !action || typeof action.type !== "string") return ack?.({});
+      if (applyAction(lr, action)) {
+        broadcast(lr);
+        ack?.({});
+      } else {
+        ack?.({ snapshot: hostSnapshot(lr) });
+      }
     });
 
     socket.on("host:countdown", () => {

@@ -10,6 +10,9 @@ type Status = "loading" | "ready" | "not_found" | "locked" | "error";
 
 const IDLE_BUZZ: BuzzState = { status: "idle", buzzes: [] };
 
+/** Waits for the server instead of updating the screen straight away: the server may refuse these or make new ids. */
+const SERVER_ONLY = new Set<GameAction["type"]>(["team:add", "power:use", "power:draft"]);
+
 export function useHostGame(slug: string) {
   const [status, setStatus] = useState<Status>("loading");
   const [room, setRoom] = useState<Room | null>(null);
@@ -26,7 +29,11 @@ export function useHostGame(slug: string) {
   const [lockedBoard, setLockedBoard] = useState<{ slug: string; name: string } | null>(null);
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
-  const applySnapshot = useCallback((snap: HostSnapshot) => {
+  /** Host actions sent but not yet confirmed; the screen already shows their result. */
+  const pending = useRef(0);
+  const deferred = useRef<HostSnapshot | null>(null);
+
+  const applyFull = useCallback((snap: HostSnapshot) => {
     roomRef.current = snap.room;
     boardRef.current = snap.board;
     setRoom(snap.room);
@@ -35,6 +42,18 @@ export function useHostGame(slug: string) {
     setBuzz(snap.buzz);
     setRemotes(snap.remotes);
   }, []);
+
+  const applySnapshot = useCallback(
+    (snap: HostSnapshot) => {
+      if (pending.current === 0) return applyFull(snap);
+      // An older state would undo clicks the server hasn't seen yet, so hold it until they're confirmed.
+      deferred.current = snap;
+      setPlayers(snap.players);
+      setBuzz(snap.buzz);
+      setRemotes(snap.remotes);
+    },
+    [applyFull],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -108,7 +127,25 @@ export function useHostGame(slug: string) {
       const b = boardRef.current;
       if (!current || !b) return;
       if (current.mode === "live") {
-        getSocket().emit("host:action", action);
+        pending.current++;
+        getSocket()
+          .timeout(8000)
+          .emit("host:action", action, (err: Error | null, res?: { snapshot?: HostSnapshot }) => {
+            pending.current = Math.max(0, pending.current - 1);
+            if (!err && res?.snapshot) deferred.current = res.snapshot;
+            if (pending.current === 0 && deferred.current) {
+              applyFull(deferred.current);
+              deferred.current = null;
+            }
+          });
+        if (!SERVER_ONLY.has(action.type)) {
+          const state = gameReducer(current.state, action, b);
+          if (state !== current.state) {
+            const next = { ...current, state: { ...state, powerNotices: current.state.powerNotices } };
+            roomRef.current = next;
+            setRoom(next);
+          }
+        }
         return;
       }
       const state = gameReducer(current.state, action, b);
@@ -118,7 +155,7 @@ export function useHostGame(slug: string) {
       setRoom(next);
       persistLocal();
     },
-    [persistLocal],
+    [persistLocal, applyFull],
   );
 
   const countdown = useCallback(() => getSocket().emit("host:countdown"), []);

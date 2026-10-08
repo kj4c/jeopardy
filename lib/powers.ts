@@ -60,7 +60,7 @@ export const POWERS: Record<PowerType, PowerInfo> = {
     icon: "🥷",
     timing: "anytime",
     description:
-      "Secret. The next time another team answers, you get their points instead, or their loss if they get it wrong. Nobody knows until it happens.",
+      "Secret. The next time another team answers, you get their points instead, or their loss if they get it wrong. Nobody knows until it happens. If another team armed a Steal before you, theirs goes off first and yours waits for the next answer.",
   },
   second: {
     id: "second",
