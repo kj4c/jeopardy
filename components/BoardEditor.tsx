@@ -235,7 +235,7 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
             Quickfire{board.quickfire?.questions.length ? ` (${board.quickfire.questions.length})` : ""}
           </button>
           <button className="btn btn-ghost btn-sm" onClick={() => setSelection({ kind: "final" })}>
-            Final Jeopardy
+            Final Kashpot!
           </button>
           {returnRoom ? (
             <button
@@ -338,7 +338,7 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
               <div>
                 <p className="label mb-1">
                   {selection.kind === "final"
-                    ? "Final Jeopardy"
+                    ? "Final Kashpot!"
                     : selection.kind === "quickfire"
                       ? "Quickfire"
                       : `${selectedCategory?.title || "Category"} · $${board.rowValues[selectedRow ?? 0]}`}

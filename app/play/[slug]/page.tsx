@@ -433,26 +433,26 @@ function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam:
 
   const eligible = phase.eligible.includes(myTeam.id);
   if (phase.step === "wager") {
-    if (!eligible) return <Waiting title="Final Jeopardy" body={`Category: ${phase.category}. Your team sits this one out.`} />;
+    if (!eligible) return <Waiting title="Final Kashpot!" body={`Category: ${phase.category}. Your team sits this one out.`} />;
     const wager = phase.wagers[myTeam.id];
     if (wager) return <Waiting title="Wager locked." body={`Submitted by ${wager.by ?? "the host"}.`} />;
     return (
       <WagerInput
-        title={phase.category || "Final Jeopardy"}
-        label="Final Jeopardy"
+        title={phase.category || "Final Kashpot!"}
+        label="Final Kashpot!"
         max={finalMaxWager(myTeam)}
         note={myTeam.score < 0 ? `You're on ${formatScore(myTeam.score)}. Get it right to climb back toward $0.` : undefined}
       />
     );
   }
   if (phase.step === "clue") {
-    if (!eligible) return <Waiting title="Final Jeopardy" body="Watch the screen." />;
+    if (!eligible) return <Waiting title="Final Kashpot!" body="Watch the screen." />;
     const answer = phase.answers[myTeam.id];
     if (answer) return <Waiting title="Response in." body={`Submitted by ${answer.by ?? "the host"}.`} />;
     if (phase.timeUp) return <Waiting title="Time's up." body="Your team didn't get a response in." />;
     return <FinalAnswerInput timerLeftMs={phase.timerLeftMs} />;
   }
-  return <Waiting title="Final Jeopardy" body="Eyes on the big screen." />;
+  return <Waiting title="Final Kashpot!" body="Eyes on the big screen." />;
 }
 
 function Waiting({ title, body }: { title: string; body: string }) {
@@ -694,7 +694,7 @@ function FinalAnswerInput({ timerLeftMs }: { timerLeftMs?: number }) {
         if (res.error) setError("Couldn't submit. A teammate may have already answered.");
       }}
     >
-      <p className="label mb-3">Final Jeopardy</p>
+      <p className="label mb-3">Final Kashpot!</p>
       <h1 className="font-display mb-2 text-5xl">Your response</h1>
       <p className={`mb-6 text-lg tabular-nums ${left !== null && left <= 10 ? "text-bad" : "text-muted"}`}>
         {left === null ? "\u00a0" : outOfTime ? "Time's up! Sending what you wrote…" : `${left}s left`}

@@ -194,7 +194,7 @@ export default function HostPage() {
           className={`btn btn-primary btn-sm ${allUsed ? "animate-pulse" : ""}`}
           onClick={() => dispatch({ type: "final:start" })}
         >
-          Final Jeopardy
+          Final Kashpot!
         </button>
         <button
           className="btn btn-ghost btn-sm"

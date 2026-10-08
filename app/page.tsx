@@ -18,7 +18,7 @@ export default function Home() {
       <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-6 py-16 md:px-10">
         <p className="label animate-fade-up mb-6">Live trivia · phone buzzers · your own boards</p>
         <h1 className="font-display animate-fade-up max-w-3xl text-6xl md:text-8xl">
-          This is <em className="font-thin-serif gradient-text pr-2 text-[1.12em] not-italic">Jeopardy.</em>
+          This is <em className="font-thin-serif gradient-text pr-2 text-[1.12em] not-italic">KASHMONEY.</em>
         </h1>
         <p className="animate-fade-up mt-6 max-w-xl text-lg text-cream/80 md:text-xl">
           Build boards with images and video, then run the game on a big screen while everyone buzzes in from their
@@ -73,12 +73,12 @@ function TopBar() {
   return (
     <header className="border-b border-line">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4 md:px-10">
-        <Link href="/" className="font-display text-2xl">
-          Jeopardy<span className="text-coral">.</span>
+        <Link href="/" className="font-display text-xl sm:text-2xl">
+          KASHMONEY<span className="text-coral">.</span>
         </Link>
         <nav className="flex items-center gap-2">
           <ThemeToggle />
-          <Link href="/join" className="btn btn-ghost btn-sm">
+          <Link href="/join" className="btn btn-ghost btn-sm max-sm:hidden">
             Join a room
           </Link>
           <Link href="/boards" className="btn btn-primary btn-sm">

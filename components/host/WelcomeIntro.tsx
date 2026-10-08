@@ -61,7 +61,7 @@ export function WelcomeIntro({ boardName, onDone }: { boardName: string; onDone:
           className="font-display bg-gradient-to-r from-g-pink via-g-hot to-g-orange bg-clip-text px-[0.15em] pb-[0.25em] pt-[0.05em] text-[clamp(2.2rem,6vw,6.5rem)] font-black italic leading-none text-transparent"
           style={{ animation: "intro-rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 1.4s both" }}
         >
-          Jeopardy!
+          KASHMONEY!
         </p>
       </div>
     </div>

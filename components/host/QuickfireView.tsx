@@ -78,7 +78,7 @@ export function QuickfireView({
                 </button>
                 {canFinal && (
                   <button className="btn btn-ghost px-8" onClick={() => dispatch({ type: "final:start" })}>
-                    Final Jeopardy
+                    Final Kashpot!
                   </button>
                 )}
                 <button className="btn btn-ghost px-8" onClick={() => dispatch({ type: "game:board" })}>

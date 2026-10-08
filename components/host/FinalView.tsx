@@ -31,10 +31,10 @@ export function FinalView({
     <div className="animate-fade-up fixed inset-0 z-40 flex flex-col bg-ink">
       <GradientBackground variant="hero" waves={false} />
       <header className="flex items-center justify-between border-b border-line bg-ink px-6 py-3">
-        <p className="label !text-cream/80">Final Jeopardy · {stepLabel(phase.step)}</p>
+        <p className="label !text-cream/80">Final Kashpot! · {stepLabel(phase.step)}</p>
         <button
           className="btn btn-ghost btn-sm"
-          onClick={() => (phase.step === "done" || confirm("Leave Final Jeopardy?")) && dispatch({ type: "final:exit" })}
+          onClick={() => (phase.step === "done" || confirm("Leave Final Kashpot?")) && dispatch({ type: "final:exit" })}
         >
           {phase.step === "done" ? "Back to board" : "Exit"}
         </button>
@@ -46,7 +46,7 @@ export function FinalView({
           <>
             <p className="label">The category is</p>
             <h1 className="font-display animate-pop gradient-text text-[clamp(3rem,8vw,8rem)]">
-              {fj?.category || "Final Jeopardy"}
+              {fj?.category || "Final Kashpot!"}
             </h1>
             {eligible.length === 0 ? (
               <p className="text-muted">Every team is on $0, so no one has anything to wager.</p>
@@ -124,7 +124,7 @@ export function FinalView({
 
         {phase.step === "done" && (
           <>
-            <Standings teams={teams} title="Leading after Final Jeopardy" />
+            <Standings teams={teams} title="Leading after Final Kashpot" />
             <div className="flex flex-wrap justify-center gap-3">
               <button className="btn btn-primary px-8" onClick={() => dispatch({ type: "game:end" })}>
                 End game

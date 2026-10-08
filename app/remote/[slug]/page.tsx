@@ -195,7 +195,7 @@ function PhaseView({ phase }: { phase: RemoteSnapshot["phase"] }) {
   if (phase.kind === "final") {
     return (
       <div className="animate-fade-up flex flex-col gap-5">
-        <p className="label">Final Jeopardy · {phase.category}</p>
+        <p className="label">Final Kashpot! · {phase.category}</p>
         <Answer text={phase.answer} />
         <Question text={phase.question} />
         <div className="flex flex-col divide-y divide-line border border-line">

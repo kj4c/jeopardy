@@ -13,8 +13,8 @@ const sans = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains-mono" });
 
 export const metadata: Metadata = {
-  title: "Jeopardy",
-  description: "Build Jeopardy boards and play with phone buzzers.",
+  title: "KASHMONEY",
+  description: "Build trivia boards and play with phone buzzers.",
 };
 
 export const viewport: Viewport = {
