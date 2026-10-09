@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { CLUE_INTRO_MS, findClue } from "../lib/board";
 import { answeringTeam, buzzedTurn, ddMaxWager, finalMaxWager, forcedTeam, gameReducer, isOut, turnTeam } from "../lib/gameReducer";
-import { isPowerType, POWERS } from "../lib/powers";
+import { isPowerType, PHONE_CALL_SECONDS, POWERS } from "../lib/powers";
 import type {
   Board,
   BuzzState,
@@ -276,11 +276,10 @@ function syncAnswerClock(lr: LiveRoom) {
   if (lr.answer && lr.answer.key !== currentTurn(lr)?.key) lr.answer = undefined;
 }
 
-/** The host starts (or restarts) the answer clock for whoever is answering. */
-function startAnswerClock(lr: LiveRoom) {
+/** Starts (or restarts) the answer clock for whoever is answering. */
+function startAnswerClock(lr: LiveRoom, seconds = lr.room.state.answerSeconds || MANUAL_ANSWER_SECONDS) {
   const turn = currentTurn(lr);
   if (!turn) return false;
-  const seconds = lr.room.state.answerSeconds || MANUAL_ANSWER_SECONDS;
   lr.answer = { ...turn, startedAt: Date.now(), totalMs: seconds * 1000 };
   return true;
 }
@@ -620,10 +619,10 @@ export function attachRooms(server: Server) {
       if (lr) startCountdown(lr);
     });
 
-    socket.on("host:answer-timer", () => {
+    socket.on("host:answer-timer", (data?: { call?: boolean }) => {
       if (!isHostSocket || !slug) return;
       const lr = live.get(slug);
-      if (lr && startAnswerClock(lr)) broadcast(lr);
+      if (lr && startAnswerClock(lr, data?.call ? PHONE_CALL_SECONDS : undefined)) broadcast(lr);
     });
 
     socket.on("host:buzz-reset", () => {

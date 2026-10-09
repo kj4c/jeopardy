@@ -172,7 +172,7 @@ export function QuickfireView({
                 <AnswerClock timer={buzz.timer} color={firstTeam.color} onTimeUp={sounds.timeUp} />
               </div>
             ) : (
-              firstTeam && onStartTimer && <StartTimerButton seconds={timerSeconds} onClick={onStartTimer} />
+              firstTeam && onStartTimer && <StartTimerButton seconds={timerSeconds} onStart={onStartTimer} />
             )}
             <p className="label text-center !text-sm">
               {firstTeam ? `${firstTeam.name} is answering` : live ? "Buzzers open" : "Who answered?"}

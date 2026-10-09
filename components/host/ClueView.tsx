@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { findClue, formatScore } from "@/lib/board";
 import { ddMaxWager, isOut } from "@/lib/gameReducer";
-import { POWERS } from "@/lib/powers";
+import { PHONE_CALL_SECONDS, POWERS } from "@/lib/powers";
 import { sounds } from "@/lib/sound";
 import type {
   Board,
@@ -50,7 +50,7 @@ export function ClueView({
   dispatch: (a: GameAction) => void;
   onCountdown: () => void;
   onResetBuzz: () => void;
-  onStartTimer?: () => void;
+  onStartTimer?: (call?: boolean) => void;
   timerSeconds: number;
   onOpenPowerups: () => void;
 }) {
@@ -76,6 +76,8 @@ export function ClueView({
   const currentTeam = pickedPending ? pickedTeam : current ? teams.find((t) => t.id === current.teamId) : undefined;
   const questionHidden = !!phase.questionHidden && !phase.revealed && !phase.resolvedBy;
   const timer = buzz.timer && buzz.timer.teamId === currentTeam?.id ? buzz.timer : undefined;
+  const callPending =
+    !!currentTeam && !!fx?.phoned?.includes(currentTeam.id) && timer?.totalMs !== PHONE_CALL_SECONDS * 1000;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -296,12 +298,14 @@ export function ClueView({
                 <p className="label text-center !text-sm">
                   {dd ? "Judge the Daily Double" : currentTeam ? `${currentTeam.name} is answering` : "Who answered?"}
                 </p>
-                {timer ? (
+                {callPending && onStartTimer ? (
+                  <StartTimerButton seconds={PHONE_CALL_SECONDS} onStart={onStartTimer} call />
+                ) : timer ? (
                   <div className="absolute left-0 w-[30%]">
                     <AnswerClock timer={timer} color={currentTeam?.color} onTimeUp={sounds.timeUp} />
                   </div>
                 ) : (
-                  !dd && currentTeam && onStartTimer && <StartTimerButton seconds={timerSeconds} onClick={onStartTimer} />
+                  !dd && currentTeam && onStartTimer && <StartTimerButton seconds={timerSeconds} onStart={onStartTimer} />
                 )}
                 <button
                   className="btn btn-ghost btn-sm absolute right-0"
@@ -379,6 +383,9 @@ function PowerStrip({
   for (const id of fx?.bets ?? []) chips.push({ key: `b${id}`, team: teamName(id), text: `${POWERS.bet.icon} betting against the next answer` });
   for (const b of fx?.blocked ?? []) {
     chips.push({ key: `k${b.teamId}`, team: teamName(b.teamId), text: `${POWERS.block.icon} blocked by ${teamName(b.by)?.name ?? "?"}` });
+  }
+  if (!resolved) {
+    for (const id of fx?.phoned ?? []) chips.push({ key: `p${id}`, team: teamName(id), text: `${POWERS.phone.icon} is phoning a friend` });
   }
   for (const id of fx?.second ?? []) chips.push({ key: `s${id}`, team: teamName(id), text: `${POWERS.second.icon} has an extra life` });
   for (const id of fx?.retried ?? []) {
@@ -579,10 +586,14 @@ function TeamButton({ team, onClick }: { team: Team; onClick: () => void }) {
   );
 }
 
-export function StartTimerButton({ seconds, onClick }: { seconds: number; onClick: () => void }) {
+export function StartTimerButton({ seconds, onStart, call }: { seconds: number; onStart: (call?: boolean) => void; call?: boolean }) {
   return (
-    <button className="btn btn-ghost btn-sm absolute left-0" onClick={onClick} title="Give the answering team a countdown, shown here and on phones">
-      ⏱ Start {seconds}s timer
+    <button
+      className={`btn btn-sm absolute left-0 ${call ? "btn-primary" : "btn-ghost"}`}
+      onClick={() => onStart(call)}
+      title={call ? "Start the call clock once their friend picks up" : "Give the answering team a countdown, shown here and on phones"}
+    >
+      {call ? `📞 Start ${seconds}s call` : `⏱ Start ${seconds}s timer`}
     </button>
   );
 }

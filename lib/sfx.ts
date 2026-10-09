@@ -65,6 +65,14 @@ export const sfx = {
     tone(1175, 0.05, 0.6, "triangle", 0.22);
     tone(1568, 0.1, 0.7, "sine", 0.14);
   },
+  /** An old phone's double ring: brrring-brrring. */
+  ring() {
+    for (const burst of [0, 0.45]) {
+      for (let i = 0; i < 14; i++) tone(i % 2 ? 1180 : 1420, burst + i * 0.025, 0.03, "square", 0.07);
+      tone(440, burst, 0.36, "sine", 0.12);
+      tone(480, burst, 0.36, "sine", 0.12);
+    }
+  },
   /** The last reel lands. */
   jackpot() {
     tone(260, 0, 0.16, "triangle", 0.6, 90);

@@ -551,6 +551,54 @@ body {
     filter: drop-shadow(0 0 40px #ffd75e) drop-shadow(0 0 90px #ffb800);
   }
 }
+@keyframes phone-ring {
+  0%,
+  60%,
+  100% {
+    transform: rotate(0deg);
+  }
+  6%,
+  18%,
+  30%,
+  42% {
+    transform: rotate(-14deg) translateY(-2%);
+  }
+  12%,
+  24%,
+  36%,
+  48% {
+    transform: rotate(14deg) translateY(-2%);
+  }
+}
+@keyframes ring-wave {
+  from {
+    transform: scale(0.45);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+@keyframes ring-bubble {
+  0% {
+    transform: scale(0.3) rotate(var(--tilt, 0deg));
+    opacity: 0;
+  }
+  15% {
+    transform: scale(1.1) rotate(var(--tilt, 0deg));
+    opacity: 1;
+  }
+  25%,
+  75% {
+    transform: scale(1) rotate(var(--tilt, 0deg));
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.9) rotate(var(--tilt, 0deg));
+    opacity: 0;
+  }
+}
 @keyframes slot-tick {
   from {
     transform: translateY(-45%);

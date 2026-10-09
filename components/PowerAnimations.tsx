@@ -7,13 +7,13 @@ import { sfx } from "@/lib/sfx";
 import type { PowerNotice, PowerType, Team } from "@/lib/types";
 
 /** Power-ups with a full-screen animation when used; the rest get a toast. */
-export const ANIMATED_POWERS = new Set<PowerType>(["block", "double", "rng", "hint", "second", "bet", "duel"]);
+export const ANIMATED_POWERS = new Set<PowerType>(["block", "double", "rng", "hint", "second", "bet", "duel", "phone"]);
 
 /** How long each animation stays up, in ms. */
 export function animationLength(n: PowerNotice): number {
   if (n.kind === "settled") return 3800;
   if (n.kind === "stolen") return 4400;
-  return { block: 3400, double: 2800, rng: 5600, hint: 3000, second: 3200, bet: 3400, duel: 3600 }[n.power as string] ?? 3000;
+  return { block: 3400, double: 2800, rng: 5600, hint: 3000, second: 3200, bet: 3400, duel: 3600, phone: 4000 }[n.power as string] ?? 3000;
 }
 
 type Props = { notice: PowerNotice; teams: Team[]; big?: boolean; myTeamId?: string };
@@ -40,6 +40,8 @@ export function PowerAnimation({ notice, teams, big, myTeamId }: Props) {
       return <ExtraLifeAnim team={team} big={big} name={name} />;
     case "hint":
       return <HintAnim team={team} big={big} name={name} />;
+    case "phone":
+      return <PhoneAnim team={team} big={big} name={name} />;
     case "bet":
       return <BetAnim by={team} others={teams.filter((t) => t.id !== team.id)} big={big} name={name} />;
     case "duel":
@@ -338,6 +340,82 @@ function HintAnim({ team, big, name }: { team: Team; big?: boolean; name: Name }
         />
         <span style={{ color: team.color }}>{name(team)}</span> used Hint!
       </p>
+    </div>
+  );
+}
+
+const RINGS_AT = [300, 1300];
+const PICKUP_AT = 2300;
+
+function PhoneAnim({ team, big, name }: { team: Team; big?: boolean; name: Name }) {
+  const [answered, setAnswered] = useState(false);
+  useEffect(() => {
+    const timers = [
+      ...(big ? RINGS_AT.map((at) => setTimeout(() => sfx.ring(), at)) : []),
+      setTimeout(() => setAnswered(true), PICKUP_AT),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, [big]);
+  const phoneSize = big ? "text-[min(30vh,16rem)]" : "text-[min(24vh,8rem)]";
+  const bubble = `font-display absolute whitespace-nowrap rounded-full bg-cream px-[0.6em] py-[0.15em] font-black italic text-ink ${
+    big ? "text-[clamp(1.6rem,3vw,3rem)]" : "text-xl"
+  }`;
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[60] flex flex-col items-center justify-center gap-[4vh] overflow-hidden bg-ink/85 px-6 backdrop-blur-sm">
+      <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse 55% 60% at 50% 42%, ${team.color}66 0%, transparent 70%)` }} />
+      <div className="relative flex items-center justify-center">
+        {!answered &&
+          RINGS_AT.flatMap((at) =>
+            [0, 250].map((d) => (
+              <span
+                key={`${at}-${d}`}
+                className="absolute inset-[-10%] rounded-full border-4"
+                style={{ borderColor: team.color, animation: `ring-wave 0.9s ease-out ${at + d}ms both` }}
+              />
+            )),
+          )}
+        <span
+          className={`relative block leading-none ${phoneSize}`}
+          style={{
+            filter: `drop-shadow(0 0 40px ${team.color}aa)`,
+            animation: answered
+              ? "pop 0.4s cubic-bezier(0.3, 1.5, 0.5, 1) both"
+              : `shush-pop 0.4s cubic-bezier(0.3, 1.5, 0.5, 1) both, ${RINGS_AT.map((at) => `phone-ring 1s linear ${at}ms`).join(", ")}`,
+          }}
+        >
+          {answered ? "📞" : "☎️"}
+        </span>
+        {!answered && (
+          <>
+            <span className={`${bubble} -left-[65%] top-0`} style={{ "--tilt": "-10deg", animation: `ring-bubble 1s ease ${RINGS_AT[0]}ms both` } as React.CSSProperties}>
+              RING!
+            </span>
+            <span className={`${bubble} -right-[65%] top-[10%]`} style={{ "--tilt": "8deg", animation: `ring-bubble 1s ease ${RINGS_AT[1]}ms both` } as React.CSSProperties}>
+              RING!
+            </span>
+          </>
+        )}
+        {answered && (
+          <span className={`${bubble} animate-pop -right-[55%] -top-[5%]`}>
+            Hello? 👋
+          </span>
+        )}
+      </div>
+      <div className="relative min-h-[2.5em] text-center">
+        {answered && (
+          <>
+            <p
+              className={`font-display animate-pop leading-tight text-cream ${big ? "text-[clamp(2.5rem,5vw,5rem)]" : "text-3xl"}`}
+              style={{ textShadow: "0 2px 18px rgba(0,0,0,0.85)" }}
+            >
+              <TeamName team={team} name={name} /> is phoning a friend!
+            </p>
+            <p className={`animate-pop mt-2 text-cream/80 ${big ? "text-2xl" : "text-base"}`} style={{ animationDelay: "250ms" }}>
+              Anyone outside the team can help
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 }

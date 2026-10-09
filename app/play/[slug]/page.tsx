@@ -753,6 +753,7 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
     if (POWERS[p].timing === "board") return phase.kind === "board" && !queued.some((q) => q.power === p);
     if (!myTurn) return false;
     if (p === "second") return !fx?.second.includes(myTeam.id) && !fx?.retried.includes(myTeam.id);
+    if (p === "phone") return !fx?.phoned?.includes(myTeam.id);
     return !fx?.hints.includes(myTeam.id);
   };
 

@@ -57,7 +57,7 @@ export type Board = {
   updatedAt?: number;
 };
 
-export type PowerType = "bet" | "double" | "block" | "duel" | "rng" | "steal" | "second" | "hint";
+export type PowerType = "bet" | "double" | "block" | "duel" | "rng" | "steal" | "second" | "hint" | "phone";
 
 /** One side of a 1v1. Without a player id, anyone on the team can buzz. */
 export type Duelist = { teamId: string; playerId?: string; name?: string };
@@ -100,6 +100,8 @@ export type PowerEffects = {
   /** Teams that used their second answer already. */
   retried: string[];
   hints: string[];
+  /** Teams that used Phone a friend. */
+  phoned?: string[];
   /** Only these two can buzz; a correct answer takes the points from the other side. */
   duel?: [Duelist, Duelist];
 };

@@ -473,7 +473,7 @@ function reduce(state: GameState, action: GameAction, board: Board): GameState {
       const teams = addPower(state.teams, teamId, power, -1);
       const used = notice(teamId, power, "used", targetTeamId);
       if (POWERS[power].timing === "board") {
-        if (phase.kind !== "board" || power === "second" || power === "hint") return state;
+        if (phase.kind !== "board" || power === "second" || power === "hint" || power === "phone") return state;
         const queued = state.queued ?? [];
         if (queued.some((q) => q.teamId === teamId && q.power === power)) return state;
         if (power === "rng") {
@@ -536,8 +536,13 @@ function reduce(state: GameState, action: GameAction, board: Board): GameState {
       const fx = phase.effects ?? NO_EFFECTS;
       if (power === "second" && (fx.second.includes(teamId) || fx.retried.includes(teamId))) return state;
       if (power === "hint" && fx.hints.includes(teamId)) return state;
+      if (power === "phone" && fx.phoned?.includes(teamId)) return state;
       const effects =
-        power === "second" ? { ...fx, second: [...fx.second, teamId] } : { ...fx, hints: [...fx.hints, teamId] };
+        power === "second"
+          ? { ...fx, second: [...fx.second, teamId] }
+          : power === "phone"
+            ? { ...fx, phoned: [...(fx.phoned ?? []), teamId] }
+            : { ...fx, hints: [...fx.hints, teamId] };
       return withNotices({ ...state, teams, phase: { ...phase, effects } }, used);
     }
 

@@ -76,7 +76,17 @@ export const POWERS: Record<PowerType, PowerInfo> = {
     timing: "answer",
     description: "Ask the host for a hint before answering.",
   },
+  phone: {
+    id: "phone",
+    name: "Phone a friend",
+    icon: "📞",
+    timing: "answer",
+    description: "Ask anyone who isn't on your team for help, in the room or on a real call. The host starts a 30-second clock once they pick up.",
+  },
 };
+
+/** Length of the clock the host starts once a Phone a friend call is picked up. */
+export const PHONE_CALL_SECONDS = 30;
 
 export const POWER_TYPES = Object.keys(POWERS) as PowerType[];
 

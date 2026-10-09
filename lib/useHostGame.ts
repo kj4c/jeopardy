@@ -160,7 +160,7 @@ export function useHostGame(slug: string) {
 
   const countdown = useCallback(() => getSocket().emit("host:countdown"), []);
   const resetBuzz = useCallback(() => getSocket().emit("host:buzz-reset"), []);
-  const startAnswerTimer = useCallback(() => getSocket().emit("host:answer-timer"), []);
+  const startAnswerTimer = useCallback((call?: boolean) => getSocket().emit("host:answer-timer", { call }), []);
   const removePlayer = useCallback((playerId: string) => getSocket().emit("host:player-remove", { playerId }), []);
 
   const setMode = useCallback(
