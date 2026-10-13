@@ -24,7 +24,8 @@ const httpServer = createServer((req, res) => {
   handle(req, res);
 });
 
-const io = new Server(httpServer, { path: "/socket.io", maxHttpBufferSize: 1e5 });
+// Phones drop off Wi-Fi and sleep a lot; notice dead connections in seconds rather than the default ~45s.
+const io = new Server(httpServer, { path: "/socket.io", maxHttpBufferSize: 1e5, pingInterval: 10000, pingTimeout: 8000 });
 attachRooms(io);
 
 httpServer.listen(port, () => {

@@ -439,7 +439,7 @@ function updatePlayerStats(lr: LiveRoom, teamId: string, name: string, update: (
   scheduleSave(lr);
 }
 
-type BuzzResult = { ok: boolean; reason?: "early" | "penalty" | "locked" | "closed" | "duplicate" | "noteam" };
+type BuzzResult = { ok: boolean; reason?: "early" | "penalty" | "locked" | "closed" | "duplicate" | "noteam" | "rejoin" };
 
 function handleBuzz(lr: LiveRoom, player: LivePlayer): BuzzResult {
   const now = Date.now();
@@ -645,7 +645,7 @@ export function attachRooms(server: Server) {
 
     socket.on(
       "player:join",
-      (data: { slug: string; playerId: string; name: string }, ack?: (res: unknown) => void) => {
+      (data: { slug: string; playerId: string; name: string; teamId?: string }, ack?: (res: unknown) => void) => {
         const lr = load(String(data?.slug ?? ""));
         if (!lr) return ack?.({ error: "not_found" });
         const id = String(data.playerId ?? "").slice(0, 64);
@@ -654,16 +654,19 @@ export function attachRooms(server: Server) {
         slug = lr.room.slug;
         playerId = id;
         socket.join(`play:${slug}`);
+        // Players aren't saved, so after a server restart the phone tells us which team it was on.
+        const lastTeam = lr.room.state.teams.some((t) => t.id === data.teamId) ? data.teamId! : null;
         const existing = lr.players.get(id);
         if (existing) {
           existing.name = name;
           existing.connected = true;
           existing.sockets.add(socket.id);
+          if (!existing.teamId && lastTeam) existing.teamId = lastTeam;
         } else {
           lr.players.set(id, {
             id,
             name,
-            teamId: null,
+            teamId: lastTeam,
             connected: true,
             sockets: new Set([socket.id]),
             latency: 0,
@@ -703,7 +706,7 @@ export function attachRooms(server: Server) {
 
     socket.on("player:buzz", (_data: unknown, ack?: (res: BuzzResult) => void) => {
       const cur = currentPlayer();
-      if (!cur) return ack?.({ ok: false, reason: "closed" });
+      if (!cur) return ack?.({ ok: false, reason: "rejoin" });
       const result = handleBuzz(cur.lr, cur.player);
       if (typeof ack === "function") ack(result);
       if (result.ok) broadcast(cur.lr);

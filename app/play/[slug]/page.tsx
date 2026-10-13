@@ -14,6 +14,7 @@ import { emitAck, getPlayerId, getSocket } from "@/lib/socket";
 import type { Player, PowerType, PublicSnapshot, Team } from "@/lib/types";
 
 const NAME_KEY = "jeopardy_name";
+const TEAM_KEY = "kash_team";
 
 function vibrate(pattern: number | number[]) {
   if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(pattern);
@@ -28,6 +29,8 @@ export default function PlayPage() {
   const [removed, setRemoved] = useState(false);
   const [changingTeam, setChangingTeam] = useState(false);
   const playerId = useRef("");
+  const rejoin = useRef<() => Promise<boolean>>(async () => false);
+  const teamKey = `${TEAM_KEY}:${slug}`;
 
   useEffect(() => {
     playerId.current = getPlayerId();
@@ -37,40 +40,78 @@ export default function PlayPage() {
       .catch(() => setExists(false));
   }, [slug]);
 
+  const myTeamId = snap?.players.find((p) => p.id === playerId.current)?.teamId;
+  useEffect(() => {
+    if (myTeamId) localStorage.setItem(teamKey, myTeamId);
+  }, [myTeamId, teamKey]);
+
   useEffect(() => {
     if (!exists || !name) return;
     const socket = getSocket();
     let pingTimer: ReturnType<typeof setInterval>;
 
+    /** Drops a connection that looks open but has gone dead (sleeping phone, Wi-Fi switch) and starts a fresh one. */
+    const reconnect = () => socket.disconnect().connect();
     const measure = async () => {
+      if (!socket.connected) return;
       const t0 = performance.now();
       try {
         await emitAck("ping:check", Date.now(), 3000);
         socket.emit("player:latency", { rtt: performance.now() - t0 });
-      } catch {}
+      } catch {
+        if (socket.connected) reconnect();
+      }
     };
     const join = async () => {
-      const res = await emitAck<{ ok?: boolean; error?: string }>("player:join", {
-        slug,
-        playerId: playerId.current,
-        name,
-      }).catch(() => ({ error: "timeout" }));
-      if (res.error === "not_found") setExists(false);
-      else {
-        setConnected(true);
-        measure();
+      const res = await emitAck<{ ok?: boolean; error?: string }>(
+        "player:join",
+        { slug, playerId: playerId.current, name, teamId: localStorage.getItem(teamKey) ?? undefined },
+        4000,
+      ).catch(() => ({ error: "timeout" }));
+      if (res.error === "not_found") {
+        setExists(false);
+        return false;
       }
+      if (res.error) {
+        if (socket.connected) reconnect();
+        return false;
+      }
+      setConnected(true);
+      measure();
+      return true;
+    };
+    rejoin.current = async () => {
+      if (!socket.connected) {
+        socket.connect();
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, 4000);
+          socket.once("connect", () => {
+            clearTimeout(t);
+            resolve();
+          });
+        });
+        if (!socket.connected) return false;
+      }
+      return join();
     };
     const onConnect = () => join();
     const onDisconnect = () => setConnected(false);
     const onRemoved = () => setRemoved(true);
     const onClosed = () => setExists(false);
+    const onWake = () => {
+      if (document.visibilityState !== "visible") return;
+      if (socket.connected) measure();
+      else socket.connect();
+    };
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("public:state", setSnap);
     socket.on("player:removed", onRemoved);
     socket.on("room:closed", onClosed);
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("online", onWake);
+    window.addEventListener("pageshow", onWake);
     if (socket.connected) join();
     pingTimer = setInterval(measure, 8000);
     return () => {
@@ -80,8 +121,11 @@ export default function PlayPage() {
       socket.off("public:state", setSnap);
       socket.off("player:removed", onRemoved);
       socket.off("room:closed", onClosed);
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("online", onWake);
+      window.removeEventListener("pageshow", onWake);
     };
-  }, [exists, name, slug]);
+  }, [exists, name, slug, teamKey]);
 
   if (exists === false) {
     return (
@@ -176,7 +220,7 @@ export default function PlayPage() {
         </div>
       </header>
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
-        <PlayerStage snap={snap} myTeam={myTeam} playerId={playerId.current} />
+        <PlayerStage snap={snap} myTeam={myTeam} playerId={playerId.current} link={{ online: connected, rejoin: () => rejoin.current() }} />
       </div>
       {snap.mode === "live" && me && <PowerPanel snap={snap} myTeam={myTeam} me={me} />}
       <TeamStrip teams={snap.teams} myTeamId={myTeam.id} />
@@ -299,7 +343,10 @@ function ordinal(n: number) {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
-function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam: Team; playerId: string }) {
+/** Whether the phone is joined to the room, and a way to rejoin when a buzz doesn't get through. */
+type Link = { online: boolean; rejoin: () => Promise<boolean> };
+
+function PlayerStage({ snap, myTeam, playerId, link }: { snap: PublicSnapshot; myTeam: Team; playerId: string; link: Link }) {
   const { phase } = snap;
 
   if (snap.mode === "local") {
@@ -380,6 +427,7 @@ function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam:
         snap={snap}
         myTeam={myTeam}
         playerId={playerId}
+        link={link}
         locked={phase.lockedTeams.includes(myTeam.id) || !!blocker}
         blockedBy={blocker ? snap.teams.find((t) => t.id === blocker)?.name ?? "another team" : undefined}
       />
@@ -427,7 +475,7 @@ function PlayerStage({ snap, myTeam, playerId }: { snap: PublicSnapshot; myTeam:
     return (
       <div className="flex w-full flex-col items-center">
         <p className="label mb-6">{label}</p>
-        <Buzzer key={phase.index} snap={snap} myTeam={myTeam} playerId={playerId} locked={false} />
+        <Buzzer key={phase.index} snap={snap} myTeam={myTeam} playerId={playerId} link={link} locked={false} />
       </div>
     );
   }
@@ -465,18 +513,21 @@ function Waiting({ title, body }: { title: string; body: string }) {
   );
 }
 
-type BuzzFeedback = "early" | "penalty" | null;
+type BuzzFeedback = "early" | "penalty" | "reconnecting" | "failed" | null;
+type BuzzReply = { ok: boolean; reason?: string };
 
 function Buzzer({
   snap,
   myTeam,
   playerId,
+  link,
   locked,
   blockedBy,
 }: {
   snap: PublicSnapshot;
   myTeam: Team;
   playerId: string;
+  link: Link;
   locked: boolean;
   blockedBy?: string;
 }) {
@@ -499,21 +550,35 @@ function Buzzer({
     if (firstIn) vibrate([120, 60, 120, 60, 250]);
   }, [firstIn]);
 
+  const { online, rejoin } = link;
   const press = useCallback(async () => {
     if (pending || myIndex !== -1 || locked) return;
     setPending(true);
+    // A buzz sent while offline would sit in a queue and arrive before the phone rejoins, so the server can't
+    // tell who it's from. Rejoin first, then send.
+    const send = () => emitAck<BuzzReply>("player:buzz", {}, 2500).catch((): BuzzReply => ({ ok: false, reason: "lost" }));
     try {
-      const res = await emitAck<{ ok: boolean; reason?: string }>("player:buzz", {}, 3000);
-      if (res.ok) vibrate([40, 30, 80]);
-      else if (res.reason === "early" || res.reason === "penalty") {
+      let res: BuzzReply = online ? await send() : { ok: false, reason: "lost" };
+      if (res.reason === "lost" || res.reason === "rejoin") {
+        setFeedback("reconnecting");
+        res = (await rejoin()) ? await send() : res;
+      }
+      if (res.ok) {
+        setFeedback(null);
+        vibrate([40, 30, 80]);
+      } else if (res.reason === "early" || res.reason === "penalty") {
         setFeedback(res.reason);
         vibrate(200);
+      } else if (res.reason === "lost" || res.reason === "rejoin") {
+        setFeedback("failed");
+        vibrate(200);
+      } else {
+        setFeedback(null);
       }
-    } catch {
     } finally {
       setPending(false);
     }
-  }, [pending, myIndex, locked]);
+  }, [pending, myIndex, locked, online, rejoin]);
 
   const phase = snap.phase;
   const forced = phase.kind === "clue" ? phase.forced : undefined;
@@ -566,6 +631,11 @@ function Buzzer({
       : snap.buzzMode === "instant"
         ? "Wait for the question"
         : "Wait for the countdown";
+  }
+
+  if (myIndex === -1 && !locked) {
+    if (feedback === "reconnecting" || (!online && armed)) sub = "Reconnecting…";
+    else if (feedback === "failed") sub = "Couldn't reach the game. Tap again!";
   }
 
   const live = armed && !locked && myIndex === -1;
