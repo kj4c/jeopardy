@@ -1,3 +1,4 @@
+import { POWER_TYPES } from "./powers";
 import type { Board, Category, Clue, GameState, Media } from "./types";
 
 export function newId(prefix = ""): string {
@@ -30,14 +31,21 @@ export function findClue(board: Board, clueId: string) {
   for (const category of board.categories) {
     const row = category.clues.findIndex((c) => c.id === clueId);
     if (row !== -1) {
-      return { clue: category.clues[row], category, row, value: board.rowValues[row] ?? 0 };
+      const clue = category.clues[row];
+      return { clue, category, row, value: clueValue(board, row, clue) };
     }
   }
   return null;
 }
 
+/** A tile's value: its own if set, otherwise its row's. */
+export function clueValue(board: Board, row: number, clue?: Clue): number {
+  return clue?.value ?? board.rowValues[row] ?? 0;
+}
+
 export function maxRowValue(board: Board): number {
-  return board.rowValues.length ? Math.max(...board.rowValues) : 0;
+  const values = board.categories.flatMap((c) => c.clues.map((clue, row) => clueValue(board, row, clue)));
+  return Math.max(0, ...board.rowValues, ...values);
 }
 
 export function parseYouTube(input: string): Media | null {
@@ -100,6 +108,7 @@ export function initialGameState(teams: { name: string; color: string }[]): Game
     teams: teams.map((t) => ({ id: newId("t_"), name: t.name, color: t.color, score: 0 })),
     used: [],
     phase: { kind: "board" },
+    powerSettings: { enabled: [...POWER_TYPES], draftCount: 1 },
   };
 }
 

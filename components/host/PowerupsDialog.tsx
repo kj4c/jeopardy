@@ -18,7 +18,7 @@ export function PowerupsDialog({
   onClose: () => void;
 }) {
   const enabled = settings?.enabled ?? [];
-  const draftCount = settings?.draftCount ?? 2;
+  const draftCount = settings?.draftCount ?? 1;
   const columns = POWER_TYPES.filter((id) => enabled.includes(id) || teams.some((t) => t.powers?.[id]));
 
   const setSettings = (next: Partial<PowerSettings>) =>

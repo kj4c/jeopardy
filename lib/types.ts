@@ -9,6 +9,8 @@ export type Clue = {
   media?: Media;
   answerMedia?: Media;
   dailyDouble?: boolean;
+  /** Overrides the row's value for just this tile. */
+  value?: number;
   /** Shown on the host screen when a team uses a Hint power-up. */
   hint?: string;
   /** Hidden power-up awarded to the team that wins this tile. */

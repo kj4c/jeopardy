@@ -10,7 +10,7 @@ import { QuickFill } from "@/components/QuickFill";
 import { StartGameDialog } from "@/components/StartGameDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { api } from "@/lib/api";
-import { emptyCategory, emptyClue, newId } from "@/lib/board";
+import { clueValue, emptyCategory, emptyClue, newId } from "@/lib/board";
 import { isPowerType, POWER_TYPES, POWERS } from "@/lib/powers";
 import type { Board, Clue, FinalJeopardy, Quickfire, QuickfireQuestion } from "@/lib/types";
 
@@ -346,7 +346,7 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
                     ? "Final Kashpot!"
                     : selection.kind === "quickfire"
                       ? "Quickfire"
-                      : `${selectedCategory?.title || "Category"} · $${board.rowValues[selectedRow ?? 0]}`}
+                      : `${selectedCategory?.title || "Category"} · $${clueValue(board, selectedRow ?? 0, selectedClue)}`}
                 </p>
                 <h2 className="font-display text-3xl">
                   {selection.kind === "final" ? "Final round" : selection.kind === "quickfire" ? "Rapid round" : "Edit clue"}
@@ -385,6 +385,34 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
                   value={selectedClue.answerMedia}
                   onChange={(answerMedia) => updateClue(selectedCategory.id, selectedClue.id, { answerMedia })}
                 />
+                <Field label="Value (optional, overrides the row)">
+                  <div className="flex items-center gap-2">
+                    <div className="flex flex-1 items-center border border-line-strong bg-ink/60">
+                      <span className="pl-3 text-muted">$</span>
+                      <input
+                        type="number"
+                        min={0}
+                        className="w-full bg-transparent px-2 py-2.5 outline-none"
+                        value={selectedClue.value ?? ""}
+                        placeholder={String(board.rowValues[selectedRow ?? 0] ?? 0)}
+                        onChange={(e) =>
+                          updateClue(selectedCategory.id, selectedClue.id, {
+                            value: e.target.value === "" ? undefined : Math.max(0, Math.round(Number(e.target.value) || 0)),
+                          })
+                        }
+                      />
+                    </div>
+                    {selectedClue.value !== undefined && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => updateClue(selectedCategory.id, selectedClue.id, { value: undefined })}
+                      >
+                        Use row value
+                      </button>
+                    )}
+                  </div>
+                </Field>
                 <Field label="Hint (optional, shown if a team uses a Hint power-up)">
                   <input
                     className="field"
@@ -723,7 +751,10 @@ function RowCells({
             onClick={() => onSelect(cat.id, clue.id)}
             className={`tile flex min-h-24 flex-col p-3 text-left ${active ? "!border-coral" : ""}`}
           >
-            <span className="value-text text-lg font-bold">${value}</span>
+            <span className="flex items-center gap-1.5">
+              <span className="value-text text-lg font-bold">${clue.value ?? value}</span>
+              {clue.value !== undefined && clue.value !== value && <Badge>custom</Badge>}
+            </span>
             <span className={`mt-1 line-clamp-2 text-sm ${clue.question ? "text-cream/85" : "text-muted/60 italic"}`}>
               {clue.question || "Empty"}
             </span>

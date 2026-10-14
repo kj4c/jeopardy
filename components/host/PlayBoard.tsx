@@ -47,7 +47,7 @@ export function PlayBoard({
             >
               {!isUsed && (
                 <span className="value-text text-[clamp(1.4rem,3.4vw,4rem)] font-bold tracking-tight">
-                  ${value.toLocaleString("en-US")}
+                  ${(clue.value ?? value).toLocaleString("en-US")}
                 </span>
               )}
             </button>
