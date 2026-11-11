@@ -9,12 +9,14 @@ import type {
   FinalPhase,
   GameAction,
   GameState,
+  Moment,
   PowerEffects,
   PowerNotice,
   PowerType,
   QuickfirePhase,
   RoomMode,
   Team,
+  TeamStats,
 } from "./types";
 
 export function ddMaxWager(board: Board, team: Team | undefined): number {
@@ -570,41 +572,103 @@ function reduce(state: GameState, action: GameAction, board: Board): GameState {
 }
 
 const JUDGES = new Set<GameAction["type"]>(["clue:judge", "quickfire:judge", "final:judge"]);
+const SCORE_MILESTONES = [1000, 2500, 5000, 10000, 25000];
+const STREAK_MILESTONES = new Set([3, 5, 8]);
+const MAX_MOMENTS = 80;
 
-/** Updates the end-of-game recap: answers, best single gain, lowest score, and steals pulled off. */
+function soleLeader(teams: Team[]): string | undefined {
+  const [first, second] = [...teams].sort((a, b) => b.score - a.score);
+  return first && first.score > 0 && first.score !== second?.score ? first.id : undefined;
+}
+
+function momentPlace(state: GameState): Pick<Moment, "round" | "n"> {
+  const { phase } = state;
+  if (phase.kind === "quickfire") return { round: "quickfire", n: phase.index + 1 };
+  if (phase.kind === "final") return { round: "final" };
+  // Tiles are marked used when they close, so an open clue is the next one.
+  return { round: "board", n: state.used.length + (phase.kind === "clue" ? 1 : 0) };
+}
+
+/** Updates the end-of-game recap: per-team tallies plus a timeline of highlights. */
 function trackStats(prev: GameState, next: GameState, action: GameAction): GameState {
   if (next === prev || action.type === "game:reset") return next;
   const teams = { ...next.stats?.teams };
+  const moments = [...(next.stats?.moments ?? [])];
+  let leader = next.stats?.leader;
   let changed = false;
-  const entry = (id: string) => (teams[id] ??= { right: 0, wrong: 0, best: 0, low: 0, steals: 0 });
-  for (const t of next.teams) {
-    const before = prev.teams.find((p) => p.id === t.id)?.score ?? 0;
-    if (t.score === before) continue;
-    const s = entry(t.id);
-    if (t.score < s.low) teams[t.id] = { ...s, low: t.score };
-    changed = true;
-  }
+  const place = momentPlace(prev);
+  const note = (m: Omit<Moment, "round" | "n">) => moments.push({ ...place, ...m });
+  const entry = (id: string): TeamStats =>
+    (teams[id] ??= { right: 0, wrong: 0, best: 0, low: 0, steals: 0, powers: 0, ddRight: 0, ddWrong: 0 });
+  const scoreOf = (s: GameState, id: string) => s.teams.find((t) => t.id === id)?.score ?? 0;
+
   if (JUDGES.has(action.type) && "teamId" in action && "correct" in action) {
-    const s = entry(action.teamId);
-    const gain =
-      (next.teams.find((t) => t.id === action.teamId)?.score ?? 0) -
-      (prev.teams.find((t) => t.id === action.teamId)?.score ?? 0);
-    teams[action.teamId] = {
+    const id = action.teamId;
+    const s = entry(id);
+    const gain = scoreOf(next, id) - scoreOf(prev, id);
+    const streak = action.correct ? (s.streak ?? 0) + 1 : 0;
+    const dd = prev.phase.kind === "clue" && !!prev.phase.dailyDouble;
+    if (action.correct && !Object.values(teams).some((t) => t.right > 0)) {
+      note({ kind: "first-blood", teamId: id, amount: gain });
+    }
+    if (action.correct) {
+      for (const [other, o] of Object.entries(teams)) if (other !== id && o.streak) teams[other] = { ...o, streak: 0 };
+    }
+    teams[id] = {
       ...s,
       right: s.right + (action.correct ? 1 : 0),
       wrong: s.wrong + (action.correct ? 0 : 1),
       best: Math.max(s.best, gain),
+      streak,
+      bestStreak: Math.max(s.bestStreak ?? 0, streak),
+      earned: (s.earned ?? 0) + Math.max(gain, 0),
+      lost: (s.lost ?? 0) + Math.max(-gain, 0),
+      ddRight: (s.ddRight ?? 0) + (dd && action.correct ? 1 : 0),
+      ddWrong: (s.ddWrong ?? 0) + (dd && !action.correct ? 1 : 0),
     };
+    if (dd) note({ kind: action.correct ? "dd-hit" : "dd-miss", teamId: id, amount: Math.abs(gain) });
+    if (action.type === "final:judge") {
+      note({ kind: action.correct ? "final-hit" : "final-miss", teamId: id, amount: Math.abs(gain) });
+    }
+    if (STREAK_MILESTONES.has(streak)) note({ kind: "streak", teamId: id, amount: streak });
     changed = true;
   }
+
   const seen = new Set((prev.powerNotices ?? []).map((n) => n.id));
   for (const n of next.powerNotices ?? []) {
-    if (seen.has(n.id) || n.kind !== "stolen" || !n.teamId || !(n.amount && n.amount > 0)) continue;
+    if (seen.has(n.id) || !n.teamId) continue;
     const s = entry(n.teamId);
-    teams[n.teamId] = { ...s, steals: s.steals + 1 };
+    if (n.kind === "used") {
+      teams[n.teamId] = { ...s, powers: (s.powers ?? 0) + 1 };
+      changed = true;
+    } else if (n.kind === "stolen" && n.amount && n.amount > 0) {
+      teams[n.teamId] = { ...s, steals: s.steals + 1, powers: (s.powers ?? 0) + 1 };
+      note({ kind: "steal", teamId: n.teamId, otherTeamId: n.targetTeamId, amount: n.amount });
+      changed = true;
+    }
+  }
+
+  for (const t of next.teams) {
+    if (t.score === scoreOf(prev, t.id)) continue;
+    const s = entry(t.id);
+    const high = s.high ?? 0;
+    const mark = SCORE_MILESTONES.filter((m) => high < m && t.score >= m).pop();
+    if (mark) note({ kind: "milestone", teamId: t.id, amount: mark });
+    if (t.score < 0 && s.low >= 0) note({ kind: "below-zero", teamId: t.id });
+    teams[t.id] = { ...s, low: Math.min(s.low, t.score), high: Math.max(high, t.score) };
     changed = true;
   }
-  return changed ? { ...next, stats: { ...next.stats, teams } } : next;
+
+  const lead = soleLeader(next.teams);
+  if (lead && lead !== leader) {
+    // The first team to go ahead isn't a lead change; first blood already covers it.
+    if (leader) note({ kind: "lead", teamId: lead });
+    leader = lead;
+    changed = true;
+  }
+
+  if (!changed) return next;
+  return { ...next, stats: { ...next.stats, teams, moments: moments.slice(-MAX_MOMENTS), leader } };
 }
 
 export function gameReducer(state: GameState, action: GameAction, board: Board): GameState {

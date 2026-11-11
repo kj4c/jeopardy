@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { formatScore } from "@/lib/board";
 import { finalMaxWager } from "@/lib/gameReducer";
 import { POWER_TYPES, POWERS } from "@/lib/powers";
+import { REACTIONS } from "@/lib/reactions";
 import { emitAck, getPlayerId, getSocket } from "@/lib/socket";
 import type { Player, PowerType, PublicSnapshot, Team } from "@/lib/types";
 
@@ -223,6 +224,7 @@ export default function PlayPage() {
         <PlayerStage snap={snap} myTeam={myTeam} playerId={playerId.current} link={{ online: connected, rejoin: () => rejoin.current() }} />
       </div>
       {snap.mode === "live" && me && <PowerPanel snap={snap} myTeam={myTeam} me={me} />}
+      <ReactionBar />
       <TeamStrip teams={snap.teams} myTeamId={myTeam.id} />
       <PowerNoticeToast notices={snap.powerNotices} teams={snap.teams} myTeamId={myTeam.id} />
     </main>
@@ -320,6 +322,75 @@ function TeamPicker({
         )}
       </div>
     </Shell>
+  );
+}
+
+const REACTION_GAP_MS = 300;
+
+/** Emoji that float up the big screen. */
+function ReactionBar() {
+  const last = useRef(0);
+  const [popped, setPopped] = useState<{ emoji: string; n: number } | null>(null);
+  const send = (emoji: string) => {
+    const now = Date.now();
+    if (now - last.current < REACTION_GAP_MS) return;
+    last.current = now;
+    getSocket().emit("player:react", { emoji });
+    vibrate(8);
+    setPopped((p) => ({ emoji, n: (p?.n ?? 0) + 1 }));
+  };
+  return (
+    <div className="flex justify-around border-t border-line bg-ink/40 px-2 py-1 backdrop-blur-md">
+      {REACTIONS.map((e) => (
+        <button
+          key={e}
+          className="touch-manipulation select-none px-2 py-1.5 text-2xl"
+          aria-label={`Send ${e} to the big screen`}
+          onClick={() => send(e)}
+        >
+          <span key={popped?.emoji === e ? popped.n : 0} className={`inline-block ${popped?.emoji === e ? "animate-pop" : ""}`}>
+            {e}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Fetched ahead of time because iOS only allows sharing straight from a tap. */
+function ShareResults({ slug }: { slug: string }) {
+  const url = `/play/${slug}/card`;
+  const [file, setFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(url, { cache: "no-store" })
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((b) => {
+        if (b && !cancelled) setFile(new File([b], `kashmoney-${slug}.png`, { type: "image/png" }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [url, slug]);
+
+  async function share() {
+    if (file && navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") window.open(url, "_blank");
+      }
+      return;
+    }
+    window.open(url, "_blank");
+  }
+
+  return (
+    <button className="btn btn-primary mt-8 px-8" onClick={share}>
+      {file ? "Share results 📸" : "Making your results card…"}
+    </button>
   );
 }
 
@@ -439,10 +510,13 @@ function PlayerStage({ snap, myTeam, playerId, link }: { snap: PublicSnapshot; m
     const winner = sorted[0];
     const tied = sorted.length > 1 && sorted[1].score === winner?.score;
     return (
-      <Waiting
-        title={!winner ? "Game over." : tied ? "It's a tie!" : winner.id === myTeam.id ? "You won!" : `${winner.name} wins!`}
-        body={`Game over. Your team finished with ${formatScore(myTeam.score)}.`}
-      />
+      <div className="flex flex-col items-center">
+        <Waiting
+          title={!winner ? "Game over." : tied ? "It's a tie!" : winner.id === myTeam.id ? "You won!" : `${winner.name} wins!`}
+          body={`Game over. Your team finished with ${formatScore(myTeam.score)}.`}
+        />
+        <ShareResults slug={snap.slug} />
+      </div>
     );
   }
 

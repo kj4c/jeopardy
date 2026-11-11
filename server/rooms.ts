@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { CLUE_INTRO_MS, findClue } from "../lib/board";
 import { answeringTeam, buzzedTurn, ddMaxWager, finalMaxWager, forcedTeam, gameReducer, isOut, turnTeam } from "../lib/gameReducer";
 import { isPowerType, PHONE_CALL_SECONDS, POWERS } from "../lib/powers";
+import { isReaction, type Reaction } from "../lib/reactions";
 import type {
   Board,
   BuzzState,
@@ -42,6 +43,8 @@ const FALSE_START_PENALTY_MS = 500;
 const FINAL_GRACE_MS = 750;
 const IDLE_UNLOAD_MS = 30 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+/** Per phone, so one excited player can't flood the big screen. */
+const REACTION_GAP_MS = 300;
 
 const live = new Map<string, LiveRoom>();
 let io: Server;
@@ -719,6 +722,17 @@ export function attachRooms(server: Server) {
       if (!cur || !Number.isFinite(rtt) || rtt < 0) return;
       const oneWay = rtt / 2;
       cur.player.latency = cur.player.latency ? cur.player.latency * 0.6 + oneWay * 0.4 : oneWay;
+    });
+
+    let lastReaction = 0;
+    socket.on("player:react", (data: { emoji: string }) => {
+      const cur = currentPlayer();
+      const now = Date.now();
+      if (!cur || !isReaction(data?.emoji) || now - lastReaction < REACTION_GAP_MS) return;
+      lastReaction = now;
+      const team = cur.lr.room.state.teams.find((t) => t.id === cur.player.teamId);
+      const reaction: Reaction = { emoji: data.emoji, name: cur.player.name, color: team?.color };
+      io.to(`host:${cur.lr.room.slug}`).emit("room:reaction", reaction);
     });
 
     socket.on("player:buzz", (_data: unknown, ack?: (res: BuzzResult) => void) => {

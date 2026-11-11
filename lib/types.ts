@@ -218,11 +218,56 @@ export type GameState = {
   stats?: GameStats;
 };
 
+/** Optional fields were added later, so games from before then don't have them. */
+export type TeamStats = {
+  right: number;
+  wrong: number;
+  /** Biggest gain from one answer. */
+  best: number;
+  low: number;
+  steals: number;
+  high?: number;
+  streak?: number;
+  bestStreak?: number;
+  /** Points won and lost on judged answers. */
+  earned?: number;
+  lost?: number;
+  ddRight?: number;
+  ddWrong?: number;
+  powers?: number;
+};
+
+export type MomentKind =
+  | "first-blood"
+  | "lead"
+  | "milestone"
+  | "streak"
+  | "dd-hit"
+  | "dd-miss"
+  | "steal"
+  | "below-zero"
+  | "final-hit"
+  | "final-miss";
+
+/** A highlight for the recap timeline. `n` is the tile number (or quickfire question) it happened on. */
+export type Moment = {
+  kind: MomentKind;
+  teamId: string;
+  round: "board" | "quickfire" | "final";
+  n?: number;
+  amount?: number;
+  /** Steals: the team that was robbed. */
+  otherTeamId?: string;
+};
+
 /** Tallies for the end-of-game recap. Cleared by a game reset. */
 export type GameStats = {
-  teams?: Record<string, { right: number; wrong: number; best: number; low: number; steals: number }>;
+  teams?: Record<string, TeamStats>;
   /** Live rooms only, keyed by `${teamId}:${name}`. `fastest` is the quickest buzz in ms after buzzers opened. */
   players?: Record<string, { name: string; teamId: string; firsts: number; correct: number; fastest?: number }>;
+  moments?: Moment[];
+  /** Last team to hold the lead on its own, so ties don't count as lead changes. */
+  leader?: string;
 };
 
 export type RoomMode = "live" | "local";

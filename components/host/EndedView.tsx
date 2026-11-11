@@ -9,10 +9,12 @@ export function EndedView({
   teams,
   stats,
   dispatch,
+  slug,
 }: {
   teams: Team[];
   stats?: GameStats;
   dispatch: (a: GameAction) => void;
+  slug: string;
 }) {
   const leader = [...teams].sort((a, b) => b.score - a.score)[0];
   return (
@@ -29,12 +31,18 @@ export function EndedView({
           <p className="font-display gradient-text text-[clamp(2rem,5vw,4rem)] italic">Thanks for playing</p>
           <Standings teams={teams} />
           <GameRecap stats={stats} teams={teams} />
-          <button
-            className="btn btn-ghost px-8"
-            onClick={() => confirm("Reset all scores and tiles for a new game?") && dispatch({ type: "game:reset" })}
-          >
-            Play again
-          </button>
+          <div className="flex flex-wrap justify-center gap-3">
+            <a href={`/play/${slug}/card`} target="_blank" rel="noreferrer" className="btn btn-ghost px-8">
+              Results image
+            </a>
+            <button
+              className="btn btn-ghost px-8"
+              onClick={() => confirm("Reset all scores and tiles for a new game?") && dispatch({ type: "game:reset" })}
+            >
+              Play again
+            </button>
+          </div>
+          <p className="text-sm text-muted">Players can save the results image from their phones too.</p>
         </div>
       </section>
     </div>

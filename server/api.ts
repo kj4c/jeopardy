@@ -217,6 +217,18 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
     return send(res, 200, { lan });
   }
 
+  if (resource === "public" && id === "rooms" && sub && parts[3] === "results" && method === "GET") {
+    const room = db.getRoom(sub);
+    if (!room) throw new HttpError(404, "Room not found");
+    const state = getLiveState(room.slug) ?? room.state;
+    return send(res, 200, {
+      name: room.name,
+      ended: state.phase.kind === "ended",
+      teams: state.teams.map(({ id, name, color, score }) => ({ id, name, color, score })),
+      stats: state.stats ?? {},
+    });
+  }
+
   if (resource === "public" && id === "rooms" && sub && method === "GET") {
     const room = db.getRoom(sub);
     if (!room) throw new HttpError(404, "Room not found");

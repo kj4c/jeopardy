@@ -580,6 +580,23 @@ body {
     opacity: 0;
   }
 }
+@keyframes reaction-float {
+  0% {
+    transform: translate(-50%, 30%) scale(0.3);
+    opacity: 0;
+  }
+  10% {
+    transform: translate(-50%, -6vh) scale(1.15);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--drift, 0px)), -78vh) scale(0.95);
+    opacity: 0;
+  }
+}
 @keyframes ring-bubble {
   0% {
     transform: scale(0.3) rotate(var(--tilt, 0deg));

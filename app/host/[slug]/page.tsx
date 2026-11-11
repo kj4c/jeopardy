@@ -15,6 +15,7 @@ import { PowerNoticeToast } from "@/components/PowerNoticeToast";
 import { JoinPanel } from "@/components/host/JoinPanel";
 import { PlayBoard } from "@/components/host/PlayBoard";
 import { QuickfireView } from "@/components/host/QuickfireView";
+import { ReactionLayer } from "@/components/host/ReactionLayer";
 import { Scoreboard } from "@/components/host/Scoreboard";
 import { HostRemoteDialog } from "@/components/host/HostRemoteDialog";
 import { TurnOrderDialog } from "@/components/host/TurnOrderDialog";
@@ -428,7 +429,9 @@ export default function HostPage() {
           timerSeconds={room.state.answerSeconds || 10}
         />
       )}
-      {phase.kind === "ended" && <EndedView teams={room.state.teams} stats={room.state.stats} dispatch={dispatch} />}
+      {phase.kind === "ended" && (
+        <EndedView teams={room.state.teams} stats={room.state.stats} dispatch={dispatch} slug={room.slug} />
+      )}
       {powersOpen && (
         <PowerupsDialog
           settings={room.state.powerSettings}
@@ -451,6 +454,7 @@ export default function HostPage() {
       <PowerNoticeToast notices={room.state.powerNotices} teams={room.state.teams} big />
       <CountdownOverlay count={live ? (buzz.status === "countdown" ? buzz.count : undefined) : localCount} go={goFlash} />
       {intro && <WelcomeIntro boardName={board.name} onDone={endIntro} />}
+      <ReactionLayer />
     </main>
   );
 }

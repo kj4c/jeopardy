@@ -164,6 +164,13 @@ function Dashboard({ onSignedOut }: { onSignedOut: () => void }) {
     load();
   }
 
+  async function deleteBoard(b: AdminBoard) {
+    const rooms = b.rooms ? ` and its ${b.rooms} ${b.rooms === 1 ? "room" : "rooms"}` : "";
+    if (!confirm(`Delete board "${b.name}"${rooms}? A backup is made first.`)) return;
+    await api(`/api/boards/${b.id}`, { method: "DELETE" });
+    load();
+  }
+
   async function backupNow() {
     const { file } = await api<{ file: string }>("/api/admin/backups", { method: "POST" });
     setNotice(file ? `Saved ${file}` : "Backup failed");
@@ -218,9 +225,14 @@ function Dashboard({ onSignedOut }: { onSignedOut: () => void }) {
                   /b/{b.slug} · {b.rooms} {b.rooms === 1 ? "room" : "rooms"} · edited {timeAgo(b.updatedAt)}
                 </p>
               </div>
-              <Link href={`/b/${b.slug}`} className="btn btn-ghost btn-sm">
-                Edit
-              </Link>
+              <div className="flex shrink-0 gap-1">
+                <Link href={`/b/${b.slug}`} className="btn btn-ghost btn-sm">
+                  Edit
+                </Link>
+                <button className="btn btn-ghost btn-sm" onClick={() => deleteBoard(b)} title="Delete board">
+                  ✕
+                </button>
+              </div>
             </div>
           ))}
         </div>

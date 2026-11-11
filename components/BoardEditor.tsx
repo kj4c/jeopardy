@@ -32,6 +32,7 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
   const [selection, setSelection] = useState<Selection>(null);
   const [starting, setStarting] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [drag, setDrag] = useState<{ from: TileSpot; over?: TileSpot } | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const latest = useRef<Board | null>(null);
 
@@ -126,6 +127,25 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
       categories: b.categories.map((c) => ({ ...c, clues: c.clues.filter((_, i) => i !== row) })),
     }));
   };
+  const swapTiles = (a: TileSpot, b: TileSpot) =>
+    update((bd) => {
+      const from = bd.categories.find((c) => c.id === a.categoryId)?.clues[a.row];
+      const to = bd.categories.find((c) => c.id === b.categoryId)?.clues[b.row];
+      if (!from || !to || from === to) return bd;
+      return {
+        ...bd,
+        categories: bd.categories.map((c) =>
+          c.id !== a.categoryId && c.id !== b.categoryId
+            ? c
+            : {
+                ...c,
+                clues: c.clues.map((cl, i) =>
+                  c.id === a.categoryId && i === a.row ? to : c.id === b.categoryId && i === b.row ? from : cl,
+                ),
+              },
+        ),
+      };
+    });
   const updateClue = (categoryId: string, clueId: string, patch: Partial<Clue>) =>
     update((b) => ({
       ...b,
@@ -166,6 +186,20 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
     await flush();
     await api(`/api/b/${board!.slug}/logout`, { method: "POST" });
     onLocked();
+  }
+
+  async function deleteBoard() {
+    if (!board || !confirm(`Delete "${board.name || "this board"}" and all of its rooms? This can't be undone.`)) return;
+    clearTimeout(saveTimer.current);
+    latest.current = null;
+    try {
+      await api(`/api/boards/${id}`, { method: "DELETE" });
+      setStatus("saved");
+      router.push("/boards");
+    } catch (err) {
+      latest.current = board;
+      alert((err as Error).message || "Couldn't delete the board");
+    }
   }
 
   function exportJson() {
@@ -236,6 +270,9 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
               Lock
             </button>
           )}
+          <button className="btn btn-ghost btn-sm hover:!text-bad" onClick={deleteBoard}>
+            Delete
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={() => setSelection({ kind: "quickfire" })}>
             Quickfire{board.quickfire?.questions.length ? ` (${board.quickfire.questions.length})` : ""}
           </button>
@@ -320,6 +357,19 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
                 onValue={(v) => update((b) => ({ ...b, rowValues: b.rowValues.map((x, i) => (i === row ? v : x)) }))}
                 onRemove={() => removeRow(row)}
                 onSelect={(categoryId, clueId) => setSelection({ kind: "clue", categoryId, clueId })}
+                drag={drag}
+                onDrag={{
+                  start: (from) => setDrag({ from }),
+                  over: (over) =>
+                    setDrag((d) =>
+                      d && (d.over?.categoryId !== over.categoryId || d.over?.row !== over.row) ? { ...d, over } : d,
+                    ),
+                  drop: (to) => {
+                    if (drag) swapTiles(drag.from, to);
+                    setDrag(null);
+                  },
+                  end: () => setDrag(null),
+                }}
               />
             ))}
 
@@ -333,7 +383,8 @@ export function BoardEditor({ id, onLocked }: { id: string; onLocked: () => void
             </button>
           </div>
           <p className="label mt-6">
-            {board.categories.length} categories · {rows} rows · click any tile to write its clue
+            {board.categories.length} categories · {rows} rows · click any tile to write its clue · drag a tile onto
+            another to swap them
           </p>
         </div>
 
@@ -705,6 +756,8 @@ function PasswordDialog({
   );
 }
 
+type TileSpot = { categoryId: string; row: number };
+
 function RowCells({
   row,
   value,
@@ -713,6 +766,8 @@ function RowCells({
   onValue,
   onRemove,
   onSelect,
+  drag,
+  onDrag,
 }: {
   row: number;
   value: number;
@@ -721,7 +776,15 @@ function RowCells({
   onValue: (v: number) => void;
   onRemove: () => void;
   onSelect: (categoryId: string, clueId: string) => void;
+  drag: { from: TileSpot; over?: TileSpot } | null;
+  onDrag: {
+    start: (from: TileSpot) => void;
+    over: (over: TileSpot) => void;
+    drop: (to: TileSpot) => void;
+    end: () => void;
+  };
 }) {
+  const at = (spot: TileSpot | undefined, categoryId: string) => spot?.categoryId === categoryId && spot.row === row;
   return (
     <>
       <div className="group flex flex-col items-stretch justify-center gap-1">
@@ -745,11 +808,33 @@ function RowCells({
         const clue = cat.clues[row];
         if (!clue) return <div key={cat.id} />;
         const active = selection?.kind === "clue" && selection.clueId === clue.id;
+        const spot = { categoryId: cat.id, row };
+        const lifted = at(drag?.from, cat.id);
+        const target = !!drag && !lifted && at(drag.over, cat.id);
         return (
           <button
             key={cat.id}
+            draggable
             onClick={() => onSelect(cat.id, clue.id)}
-            className={`tile flex min-h-24 flex-col p-3 text-left ${active ? "!border-coral" : ""}`}
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("text/plain", clue.id);
+              onDrag.start(spot);
+            }}
+            onDragOver={(e) => {
+              if (!drag) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              onDrag.over(spot);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              onDrag.drop(spot);
+            }}
+            onDragEnd={onDrag.end}
+            className={`tile flex min-h-24 cursor-grab flex-col p-3 text-left active:cursor-grabbing ${
+              active || target ? "!border-coral" : ""
+            } ${target ? "tile-lit" : ""} ${lifted ? "opacity-40" : ""}`}
           >
             <span className="flex items-center gap-1.5">
               <span className="value-text text-lg font-bold">${clue.value ?? value}</span>
