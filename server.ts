@@ -8,7 +8,19 @@ const { default: next } = await import("next");
 const { Server } = await import("socket.io");
 const { handleApi, serveUpload } = await import("./server/api");
 const { attachRooms } = await import("./server/rooms");
-const { DATA_DIR, DATA_IS_EPHEMERAL, countBoards } = await import("./server/db");
+const { DATA_DIR, DATA_IS_EPHEMERAL, backupDatabase, countBoards, listBackups } = await import("./server/db");
+
+const BACKUP_EVERY_MS = 6 * 60 * 60 * 1000;
+const runBackup = () => {
+  try {
+    const file = backupDatabase();
+    if (file) console.log(`> Backed up the database to ${file}`);
+  } catch (err) {
+    console.error("> Database backup failed:", err);
+  }
+};
+runBackup();
+setInterval(runBackup, BACKUP_EVERY_MS).unref();
 
 const port = parseInt(process.env.PORT || "3000", 10);
 const dev = process.env.NODE_ENV !== "production";
@@ -35,7 +47,7 @@ httpServer.listen(port, () => {
     .map((i) => `http://${i!.address}:${port}`);
   console.log(`> Jeopardy ready on http://localhost:${port} (${dev ? "dev" : "production"})`);
   if (lan.length) console.log(`> Phones on the same Wi-Fi: ${lan.join("  ")}`);
-  console.log(`> Data in ${DATA_DIR} (${countBoards()} boards)`);
+  console.log(`> Data in ${DATA_DIR} (${countBoards()} boards, ${listBackups().length} backups)`);
   if (DATA_IS_EPHEMERAL) {
     console.warn("> WARNING: no Railway volume is attached. Boards will be wiped on every deploy. Add a volume to this service.");
   }

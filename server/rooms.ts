@@ -103,6 +103,16 @@ export function withoutSecrets(state: GameState): GameState {
 
 const remoteCount = (slug: string) => io.sockets.adapter.rooms.get(`remote:${slug}`)?.size ?? 0;
 
+/** Who's in a room right now; null when nobody has opened it since the server started or it went idle. */
+export function roomActivity(slug: string): { players: number; hosts: number } | null {
+  const lr = live.get(slug);
+  if (!lr) return null;
+  return {
+    players: [...lr.players.values()].filter((p) => p.connected && p.teamId).length,
+    hosts: io.sockets.adapter.rooms.get(`host:${slug}`)?.size ?? 0,
+  };
+}
+
 function hostSnapshot(lr: LiveRoom): HostSnapshot {
   return {
     room: { ...lr.room, state: withoutSecrets(lr.room.state) },
@@ -489,6 +499,13 @@ function powerRefusal(lr: LiveRoom, teamId: string, power: PowerType, targetTeam
   const team = state.teams.find((t) => t.id === teamId);
   if ((team?.powers?.[power] ?? 0) < 1) return "none_left";
   if (power === "steal") return state.steals?.includes(teamId) ? "steal_armed" : undefined;
+  if (POWERS[power].timing === "clue") {
+    const p = state.phase;
+    if (p.kind !== "clue" || p.resolvedBy || p.dailyDouble) return "clue_only";
+    if (p.effects?.bets.includes(teamId)) return "already_betting";
+    if (lr.buzz.buzzes.length || p.answered?.length || p.lockedTeams.length) return "too_late";
+    return undefined;
+  }
   if (POWERS[power].timing !== "board") return undefined;
   if (state.phase.kind !== "board") return "board_only";
   const queued = state.queued ?? [];

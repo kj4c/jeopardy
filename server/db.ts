@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { slugify } from "../lib/board";
@@ -9,9 +9,15 @@ import type { Board, GameState, Room, RoomMode, RoomSummary } from "../lib/types
 export const DATA_DIR = path.resolve(process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || "./data");
 export const DATA_IS_EPHEMERAL = !!process.env.RAILWAY_ENVIRONMENT && !process.env.RAILWAY_VOLUME_MOUNT_PATH;
 export const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
+export const BACKUP_DIR = path.join(DATA_DIR, "backups");
+const DB_FILE = path.join(DATA_DIR, "jeopardy.db");
+const KEEP_BACKUPS = 20;
 mkdirSync(UPLOAD_DIR, { recursive: true });
+mkdirSync(BACKUP_DIR, { recursive: true });
 
-const db = new DatabaseSync(path.join(DATA_DIR, "jeopardy.db"));
+restoreRequestedBackup();
+
+const db = new DatabaseSync(DB_FILE);
 db.exec(`
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS boards (
@@ -83,6 +89,11 @@ function toSummary(row: RoomRow): RoomSummary {
 
 export type BoardSummary = { id: string; slug: string; name: string; updatedAt: number; hasPassword: boolean };
 
+export function listAllBoards(): BoardSummary[] {
+  const rows = db.prepare("SELECT id, slug, name, updated_at, password_hash FROM boards ORDER BY updated_at DESC").all() as BoardRow[];
+  return rows.map(toBoardSummary);
+}
+
 export function listBoardsByIds(ids: string[]): BoardSummary[] {
   if (!ids.length) return [];
   const rows = db
@@ -91,13 +102,17 @@ export function listBoardsByIds(ids: string[]): BoardSummary[] {
        ORDER BY updated_at DESC`,
     )
     .all(...ids) as BoardRow[];
-  return rows.map((r) => ({
+  return rows.map(toBoardSummary);
+}
+
+function toBoardSummary(r: BoardRow): BoardSummary {
+  return {
     id: r.id,
     slug: r.slug,
     name: r.name,
     updatedAt: r.updated_at,
     hasPassword: !!r.password_hash,
-  }));
+  };
 }
 
 function rowToBoard(row: BoardRow): Board {
@@ -226,4 +241,68 @@ export function resetRemoteKey(slug: string): string {
     key,
   );
   return key;
+}
+
+/** Changes whenever a board or room is added, edited or deleted, so unchanged data isn't backed up again. */
+function dataSignature(): string {
+  const row = db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM boards) || ':' || (SELECT COUNT(*) FROM rooms) || ':' ||
+              IFNULL((SELECT MAX(updated_at) FROM boards), 0) || ':' || IFNULL((SELECT MAX(updated_at) FROM rooms), 0) AS sig`,
+    )
+    .get() as { sig: string };
+  return row.sig;
+}
+
+export function listBackups(): string[] {
+  return readdirSync(BACKUP_DIR)
+    .filter((f) => f.startsWith("jeopardy-") && f.endsWith(".db"))
+    .sort()
+    .reverse();
+}
+
+export function backupDetails(): { name: string; size: number; createdAt: number }[] {
+  return listBackups().map((name) => {
+    const stat = statSync(path.join(BACKUP_DIR, name));
+    return { name, size: stat.size, createdAt: stat.mtimeMs };
+  });
+}
+
+/**
+ * Copies the database into `backups/` (images in `uploads/` aren't included) and keeps the newest few.
+ * Skipped when nothing changed since the last backup, unless `reason` is given.
+ */
+export function backupDatabase(reason?: string): string | null {
+  const sigFile = path.join(BACKUP_DIR, ".last-signature");
+  const sig = dataSignature();
+  if (!reason && existsSync(sigFile) && readFileSync(sigFile, "utf8") === sig) return null;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const file = path.join(BACKUP_DIR, `jeopardy-${stamp}${reason ? `-${reason}` : ""}.db`);
+  db.prepare("VACUUM INTO ?").run(file);
+  writeFileSync(sigFile, sig);
+  for (const old of listBackups().slice(KEEP_BACKUPS)) rmSync(path.join(BACKUP_DIR, old), { force: true });
+  return file;
+}
+
+/**
+ * Set RESTORE_BACKUP to a file name in `backups/` and restart to roll the database back to it.
+ * Runs once per backup, so leaving the variable set doesn't keep wiping newer changes.
+ */
+function restoreRequestedBackup() {
+  const name = path.basename(process.env.RESTORE_BACKUP ?? "");
+  if (!name) return;
+  const source = path.join(BACKUP_DIR, name);
+  const marker = path.join(BACKUP_DIR, `.restored-${name}`);
+  if (!existsSync(source)) return console.warn(`> RESTORE_BACKUP: ${name} not found in ${BACKUP_DIR}`);
+  if (existsSync(marker)) return;
+  if (existsSync(DB_FILE)) {
+    const current = new DatabaseSync(DB_FILE);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    current.prepare("VACUUM INTO ?").run(path.join(BACKUP_DIR, `jeopardy-${stamp}-before-restore.db`));
+    current.close();
+  }
+  for (const suffix of ["-wal", "-shm"]) rmSync(DB_FILE + suffix, { force: true });
+  copyFileSync(source, DB_FILE);
+  writeFileSync(marker, new Date().toISOString());
+  console.log(`> Restored the database from ${name}. Remove RESTORE_BACKUP when you're happy with it.`);
 }

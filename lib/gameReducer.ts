@@ -532,8 +532,13 @@ function reduce(state: GameState, action: GameAction, board: Board): GameState {
           used,
         );
       }
-      if (phase.kind !== "clue" || phase.resolvedBy || phase.dailyDouble || isOut(phase, teamId)) return state;
+      if (phase.kind !== "clue" || phase.resolvedBy || phase.dailyDouble) return state;
       const fx = phase.effects ?? NO_EFFECTS;
+      if (power === "bet") {
+        if (fx.bets.includes(teamId) || phase.answered?.length || phase.lockedTeams.length) return state;
+        return withNotices({ ...state, teams, phase: { ...phase, effects: { ...fx, bets: [...fx.bets, teamId] } } }, used);
+      }
+      if (isOut(phase, teamId)) return state;
       if (power === "second" && (fx.second.includes(teamId) || fx.retried.includes(teamId))) return state;
       if (power === "hint" && fx.hints.includes(teamId)) return state;
       if (power === "phone" && fx.phoned?.includes(teamId)) return state;

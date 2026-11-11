@@ -7,19 +7,33 @@ import path from "node:path";
 import { defaultBoard, findClue, initialGameState, newId, slugify, TEAM_COLORS } from "../lib/board";
 import type { Board, GameState, RoomMode } from "../lib/types";
 import {
+  adminEnabled,
+  adminSessionCookie,
   allowAttempt,
   boardSessionCookie,
+  checkAdminPassword,
+  clearAdminCookie,
   clearBoardCookie,
   clearFailures,
   hasBoardAccess,
   hashPassword,
+  isAdmin,
   recordFailure,
   unlockedBoardIds,
   verifyPassword,
 } from "./auth";
 import * as db from "./db";
 import { GenerateError, generateBoard } from "./generate";
-import { dropRoom, getLiveState, publicSnapshot, revokeRemotes, syncBoard, syncRoom, withoutSecrets } from "./rooms";
+import {
+  dropRoom,
+  getLiveState,
+  publicSnapshot,
+  revokeRemotes,
+  roomActivity,
+  syncBoard,
+  syncRoom,
+  withoutSecrets,
+} from "./rooms";
 
 /** Sends games back to the board if the clue they had open was deleted in the editor. */
 function closeDeletedClues(board: Board) {
@@ -212,6 +226,8 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
     return send(res, 200, publicSnapshot({ room: { ...room, state }, board, buzz: { status: "idle", buzzes: [] } }));
   }
 
+  if (resource === "admin") return adminRoute(req, res, method, id, sub);
+
   if (resource === "upload" && method === "POST") {
     const boardId = new URL(req.url ?? "", "http://x").searchParams.get("board") ?? undefined;
     requireBoard(req, boardId);
@@ -281,6 +297,7 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
         return send(res, 200, saved);
       }
       if (!sub && method === "DELETE") {
+        db.backupDatabase("before-delete");
         for (const room of db.listRooms(board.id)) dropRoom(room.slug);
         db.deleteBoard(board.id);
         return send(res, 200, { ok: true }, { "Set-Cookie": clearBoardCookie(board.id) });
@@ -354,6 +371,7 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
         return send(res, 200, { key });
       }
       if (sub === "reset" && method === "POST") {
+        db.backupDatabase("before-reset");
         const state: GameState = {
           teams: (getLiveState(id) ?? room.state).teams.map((t) => ({ ...t, score: 0 })),
           used: [],
@@ -364,11 +382,77 @@ async function route(req: IncomingMessage, res: ServerResponse, pathname: string
         return send(res, 200, { ok: true });
       }
       if (!sub && method === "DELETE") {
+        db.backupDatabase("before-delete");
         dropRoom(id);
         db.deleteRoom(id);
         return send(res, 200, { ok: true });
       }
     }
+  }
+
+  throw new HttpError(404, "Not found");
+}
+
+async function adminRoute(req: IncomingMessage, res: ServerResponse, method: string, id?: string, sub?: string) {
+  if (!id && method === "GET") {
+    return send(res, 200, { enabled: adminEnabled(), authed: isAdmin(req.headers.cookie) });
+  }
+  if (id === "login" && method === "POST") {
+    if (!adminEnabled()) throw new HttpError(404, "Set ADMIN_PASSWORD on the server to turn on the admin page.");
+    const key = clientKey(req, "admin");
+    if (!allowAttempt(key)) throw new HttpError(429, "Too many attempts. Try again in a few minutes.");
+    const { password } = await readJson<{ password?: string }>(req);
+    if (!checkAdminPassword(String(password ?? ""))) {
+      recordFailure(key);
+      throw new HttpError(401, "Wrong password");
+    }
+    clearFailures(key);
+    return send(res, 200, { ok: true }, { "Set-Cookie": adminSessionCookie() });
+  }
+  if (id === "logout" && method === "POST") {
+    return send(res, 200, { ok: true }, { "Set-Cookie": clearAdminCookie() });
+  }
+
+  if (!isAdmin(req.headers.cookie)) throw new HttpError(401, "Admin sign-in required");
+
+  if (id === "overview" && method === "GET") {
+    const boards = db.listAllBoards();
+    const boardById = new Map(boards.map((b) => [b.id, b]));
+    const rooms = db.listRooms().map((summary) => {
+      const state = getLiveState(summary.slug) ?? db.getRoom(summary.slug)?.state;
+      const board = boardById.get(summary.boardId);
+      return {
+        ...summary,
+        board: board ? { name: board.name, slug: board.slug, hasPassword: board.hasPassword } : null,
+        phase: state?.phase.kind ?? "board",
+        teams: (state?.teams ?? []).map((t) => ({ name: t.name, color: t.color, score: t.score })),
+        tilesPlayed: state?.used.length ?? 0,
+        activity: roomActivity(summary.slug),
+      };
+    });
+    return send(res, 200, {
+      rooms,
+      boards: boards.map((b) => ({ ...b, rooms: rooms.filter((r) => r.boardId === b.id).length })),
+      backups: db.backupDetails(),
+    });
+  }
+
+  if (id === "backups" && sub && method === "GET") {
+    const name = path.basename(sub);
+    if (!db.listBackups().includes(name)) throw new HttpError(404, "Backup not found");
+    const file = path.join(db.BACKUP_DIR, name);
+    res.writeHead(200, {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${name}"`,
+      "Content-Length": statSync(file).size,
+      "Cache-Control": "no-store",
+    });
+    createReadStream(file).pipe(res);
+    return;
+  }
+
+  if (id === "backups" && !sub && method === "POST") {
+    return send(res, 200, { file: path.basename(db.backupDatabase("manual") ?? "") });
   }
 
   throw new HttpError(404, "Not found");

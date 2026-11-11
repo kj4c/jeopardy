@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
 if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
   throw new Error("Set SESSION_SECRET to a long random string before running in production.");
@@ -71,8 +71,37 @@ export function unlockedBoardIds(
 }
 
 export function hasBoardAccess(cookieHeader: string | undefined, boardId: string, passwordHash: string | null) {
-  if (!passwordHash) return true;
+  if (!passwordHash || isAdmin(cookieHeader)) return true;
   return validCookie(boardId, parseCookies(cookieHeader)[`${COOKIE_PREFIX}${boardId}`], passwordHash);
+}
+
+const ADMIN_COOKIE = "ka_admin";
+const adminPassword = () => process.env.ADMIN_PASSWORD ?? "";
+/** Changing ADMIN_PASSWORD signs every admin out. */
+const adminKey = () => createHash("sha256").update(adminPassword()).digest("base64url");
+
+export const adminEnabled = () => adminPassword().length > 0;
+
+export function checkAdminPassword(password: string): boolean {
+  if (!adminEnabled()) return false;
+  const digest = (s: string) => createHash("sha256").update(s).digest();
+  return safeEqual(digest(password), digest(adminPassword()));
+}
+
+export function adminSessionCookie(): string {
+  const expires = Date.now() + MAX_AGE_SECONDS * 1000;
+  return `${ADMIN_COOKIE}=${expires}.${sign(`admin.${expires}.${adminKey()}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE_SECONDS}`;
+}
+
+export function clearAdminCookie(): string {
+  return `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+}
+
+export function isAdmin(cookieHeader: string | undefined): boolean {
+  if (!adminEnabled()) return false;
+  const [expires, sig] = (parseCookies(cookieHeader)[ADMIN_COOKIE] ?? "").split(".");
+  if (!expires || !sig || Number(expires) < Date.now()) return false;
+  return safeEqual(sig, sign(`admin.${expires}.${adminKey()}`));
 }
 
 const attempts = new Map<string, { count: number; resetAt: number }>();

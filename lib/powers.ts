@@ -5,10 +5,10 @@ export type PowerInfo = {
   name: string;
   icon: string;
   /**
-   * "board": used before the next question is picked. "answer": used once your team is answering.
-   * "anytime": whenever you like, even mid-question.
+   * "board": used before the next question is picked. "clue": once the question is showing, before anyone buzzes
+   * or answers. "answer": used once your team is answering. "anytime": whenever you like, even mid-question.
    */
-  timing: "board" | "answer" | "anytime";
+  timing: "board" | "clue" | "answer" | "anytime";
   description: string;
   needsTarget?: boolean;
 };
@@ -18,8 +18,9 @@ export const POWERS: Record<PowerType, PowerInfo> = {
     id: "bet",
     name: "Bet against",
     icon: "🎲",
-    timing: "board",
-    description: "Next question: if the first other team to answer gets it wrong, you win its value. If they get it right, you lose it.",
+    timing: "clue",
+    description:
+      "Once you've seen the question, before anyone buzzes: if the first other team to answer gets it wrong, you win its value. If they get it right, you lose it.",
   },
   double: {
     id: "double",

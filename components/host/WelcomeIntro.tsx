@@ -5,6 +5,16 @@ import { useEffect, useState } from "react";
 const HOLD_MS = 3200;
 const EXIT_MS = 900;
 
+const mix = (color: string, pct: number) => `color-mix(in srgb, var(--color-g-${color}) ${pct}%, transparent)`;
+
+/** Colour that floods in from the edges and corners, leaving the middle dark for the title. */
+const CORNER_WASHES = [
+  `radial-gradient(ellipse 85% 110% at 100% 0%, ${mix("pink", 85)} 0%, ${mix("hot", 45)} 35%, transparent 72%)`,
+  `radial-gradient(ellipse 90% 110% at 0% 100%, ${mix("blue", 90)} 0%, ${mix("violet", 55)} 38%, transparent 75%)`,
+  `radial-gradient(ellipse 60% 80% at 100% 100%, ${mix("orange", 75)} 0%, ${mix("pink", 30)} 40%, transparent 75%)`,
+  `radial-gradient(ellipse 50% 60% at 0% 0%, ${mix("violet", 35)} 0%, transparent 75%)`,
+].join(", ");
+
 /** Title card shown when a game opens; slides up like a presentation to reveal the board. Click to skip. */
 export function WelcomeIntro({ boardName, onDone }: { boardName: string; onDone: () => void }) {
   const [leaving, setLeaving] = useState(false);
@@ -29,14 +39,8 @@ export function WelcomeIntro({ boardName, onDone }: { boardName: string; onDone:
       }}
       onClick={() => setLeaving(true)}
     >
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(ellipse 40% 45% at 30% 60%, color-mix(in srgb, var(--color-g-pink) 22%, transparent) 0%, transparent 70%), radial-gradient(ellipse 40% 45% at 70% 40%, color-mix(in srgb, var(--color-g-blue) 26%, transparent) 0%, transparent 70%)",
-          animation: "intro-fade 1.2s ease both",
-        }}
-      />
+      <div className="pointer-events-none absolute inset-0" style={{ background: CORNER_WASHES, animation: "intro-fade 1.2s ease both" }} />
+      <div className="halftone pointer-events-none absolute inset-0 opacity-50" style={{ animation: "intro-fade 1.2s ease both" }} />
 
       <p className="label relative !text-[clamp(0.8rem,1.3vw,1.3rem)]" style={{ animation: "intro-track 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s both" }}>
         Welcome to

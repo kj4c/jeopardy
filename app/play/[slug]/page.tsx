@@ -821,6 +821,16 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
   const usable = (p: PowerType) => {
     if (POWERS[p].timing === "anytime") return true;
     if (POWERS[p].timing === "board") return phase.kind === "board" && !queued.some((q) => q.power === p);
+    if (POWERS[p].timing === "clue") {
+      return (
+        phase.kind === "clue" &&
+        !phase.resolvedBy &&
+        !phase.dailyDouble &&
+        !phase.lockedTeams.length &&
+        !snap.buzz.buzzes.length &&
+        !fx?.bets.includes(myTeam.id)
+      );
+    }
     if (!myTurn) return false;
     if (p === "second") return !fx?.second.includes(myTeam.id) && !fx?.retried.includes(myTeam.id);
     if (p === "phone") return !fx?.phoned?.includes(myTeam.id);
@@ -877,7 +887,11 @@ function PowerPanel({ snap, myTeam, me }: { snap: PublicSnapshot; myTeam: Team; 
                   : "Use any time · stays secret"
                 : info.timing === "board"
                   ? "Use before a question is picked"
-                  : "Use when your team is answering"}
+                  : info.timing === "clue"
+                    ? fx?.bets.includes(myTeam.id)
+                      ? "Betting on this one"
+                      : "Use once the question shows, before anyone buzzes"
+                    : "Use when your team is answering"}
         </span>
       </button>
     );
@@ -1003,6 +1017,12 @@ function powerErrorMessage(code: string, power: PowerType, targetName?: string):
       return "There are no questions left to draw from.";
     case "steal_armed":
       return "Your Steal is already armed. It goes off the next time another team answers.";
+    case "clue_only":
+      return `${name} can only be used once a question is showing.`;
+    case "already_betting":
+      return "You're already betting against this question.";
+    case "too_late":
+      return `Too late! ${name} has to be used before anyone buzzes in or answers.`;
     case "timeout":
       return "Lost connection to the room. Check your signal and try again.";
     default:
