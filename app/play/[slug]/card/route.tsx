@@ -5,8 +5,10 @@ import { formatScore } from "@/lib/board";
 import { BRAND_GRADIENT, CREAM, HALFTONE, INK, LAYER, WASHES } from "@/lib/cardArt";
 import { awards, type Award } from "@/lib/recap";
 import type { GameStats, Team } from "@/lib/types";
+import { getRoom } from "@/server/db";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type Results = { name: string; ended: boolean; teams: Team[]; stats: GameStats };
 
@@ -14,16 +16,42 @@ const MUTED = "rgba(255,247,234,0.62)";
 const PANEL = { border: "2px solid rgba(255,247,234,0.16)", background: "rgba(22,18,17,0.72)" } as const;
 const font = (file: string) => readFile(join(process.cwd(), "assets/fonts", file));
 
+function resultsFromRoom(slug: string): Results | null {
+  const room = getRoom(slug);
+  if (!room) return null;
+  const { state } = room;
+  return {
+    name: room.name,
+    ended: state.phase.kind === "ended",
+    teams: state.teams.map(({ id, name, color, score }) => ({ id, name, color, score })),
+    stats: state.stats ?? {},
+  };
+}
+
+/** Prefer the live HTTP API (freshest scores), then fall back to SQLite if loopback is blocked. */
+async function loadResults(slug: string, req: Request): Promise<Results | null> {
+  const port = process.env.PORT || "3000";
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") ?? "http";
+  const bases = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
+  if (host) bases.push(`${proto}://${host}`);
+
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}/api/public/rooms/${encodeURIComponent(slug)}/results`, { cache: "no-store" });
+      if (res.ok) return (await res.json()) as Results;
+    } catch {
+      // try the next base
+    }
+  }
+  return resultsFromRoom(slug);
+}
+
 /** Story-sized (9:16) results image that players can save or share. Satori needs `display: flex` on every div. */
 export async function GET(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  // The live game lives in the custom server's memory, which Next's route bundle can't see, so ask the server.
-  const port = process.env.PORT || "3000";
-  const res = await fetch(`http://127.0.0.1:${port}/api/public/rooms/${encodeURIComponent(slug)}/results`, {
-    cache: "no-store",
-  }).catch(() => null);
-  if (!res?.ok) return new Response("Room not found", { status: 404 });
-  const data = (await res.json()) as Results;
+  const data = await loadResults(slug, req);
+  if (!data) return new Response("Room not found", { status: 404 });
 
   const teams = [...data.teams].sort((a, b) => b.score - a.score);
   const winner = teams[0];
@@ -32,11 +60,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   const headlineSize = headline.length > 16 ? 104 : headline.length > 10 ? 132 : 168;
   const site = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "kashmoney.com";
 
-  const [serif, sans, sansBold] = await Promise.all([
-    font("InstrumentSerif-Regular.ttf"),
-    font("SpaceGrotesk-500.ttf"),
-    font("SpaceGrotesk-700.ttf"),
-  ]);
+  let serif: Buffer;
+  let sans: Buffer;
+  let sansBold: Buffer;
+  try {
+    [serif, sans, sansBold] = await Promise.all([
+      font("InstrumentSerif-Regular.ttf"),
+      font("SpaceGrotesk-500.ttf"),
+      font("SpaceGrotesk-700.ttf"),
+    ]);
+  } catch (err) {
+    console.error("results card fonts missing", err);
+    return new Response("Card fonts missing", { status: 500 });
+  }
 
   return new ImageResponse(
     (

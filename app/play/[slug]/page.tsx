@@ -361,15 +361,31 @@ function ReactionBar() {
 function ShareResults({ slug }: { slug: string }) {
   const url = `/play/${slug}/card`;
   const [file, setFile] = useState<File | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "failed">("loading");
 
   useEffect(() => {
     let cancelled = false;
+    setStatus("loading");
+    setFile(null);
     fetch(url, { cache: "no-store" })
-      .then((r) => (r.ok ? r.blob() : null))
-      .then((b) => {
-        if (b && !cancelled) setFile(new File([b], `kashmoney-${slug}.png`, { type: "image/png" }));
+      .then(async (r) => {
+        if (!r.ok) return null;
+        const type = r.headers.get("content-type") ?? "";
+        if (!type.includes("image")) return null;
+        return r.blob();
       })
-      .catch(() => {});
+      .then((b) => {
+        if (cancelled) return;
+        if (b) {
+          setFile(new File([b], `kashmoney-${slug}.png`, { type: "image/png" }));
+          setStatus("ready");
+        } else {
+          setStatus("failed");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("failed");
+      });
     return () => {
       cancelled = true;
     };
@@ -388,8 +404,8 @@ function ShareResults({ slug }: { slug: string }) {
   }
 
   return (
-    <button className="btn btn-primary mt-8 px-8" onClick={share}>
-      {file ? "Share results 📸" : "Making your results card…"}
+    <button className="btn btn-primary mt-8 px-8" onClick={share} disabled={status === "loading"}>
+      {status === "ready" ? "Share results 📸" : status === "failed" ? "Open results card" : "Making your results card…"}
     </button>
   );
 }
